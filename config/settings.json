@@ -1,0 +1,14 @@
+{
+  "contextWindowSeconds": 18,
+  "decodeIntervalMs": 40,
+  "hfToken": null,
+  "hotkey": "right_cmd",
+  "language": "auto",
+  "maxTokens": 512,
+  "minSamplesForDecode": 1280,
+  "modelId": "ellamind/Voxtral-Mini-4B-Realtime-8bit-mlx",
+  "mlxDevice": "gpu",
+  "modelLoadTimeoutSeconds": 240,
+  "temperature": 0,
+  "transcriptionDelayMs": 480
+}
