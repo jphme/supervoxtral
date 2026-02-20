@@ -25,6 +25,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuBarHealthy = false
     private var statusDetailText = "Loading model..."
     private var downloadProgress: Double?
+    private let projectURL = URL(string: "https://github.com/jphme/supervoxtral")!
+    private let ellamindURL = URL(string: "https://ellamind.com")!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let loaded = SettingsLoader.load()
@@ -158,7 +160,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(.separator())
 
-        let aboutItem = NSMenuItem(title: "About Supervoxtral", action: #selector(showAboutPanel), keyEquivalent: "")
+        let aboutItem = NSMenuItem(title: "About Supervoxtral", action: #selector(showAboutSupervoxtralPanel), keyEquivalent: "")
         aboutItem.target = self
         menu.addItem(aboutItem)
 
@@ -513,9 +515,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc
-    private func showAboutPanel() {
-        NSApplication.shared.orderFrontStandardAboutPanel(nil)
-        NSApplication.shared.activate(ignoringOtherApps: true)
+    private func showAboutSupervoxtralPanel() {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "About Supervoxtral"
+        alert.informativeText = "Voxtral Mini Realtime 8bit (MLX) integration for Supervoxtral."
+        alert.addButton(withTitle: "Open GitHub")
+        alert.addButton(withTitle: "Open ellamind")
+        alert.addButton(withTitle: "Close")
+        alert.accessoryView = makeAboutModelAccessoryView()
+
+        let response = alert.runModal()
+        switch response {
+        case .alertFirstButtonReturn:
+            NSWorkspace.shared.open(projectURL)
+        case .alertSecondButtonReturn:
+            NSWorkspace.shared.open(ellamindURL)
+        default:
+            break
+        }
+    }
+
+    private func makeAboutModelAccessoryView() -> NSView {
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 8
+
+        let creatorField = NSTextField(labelWithString: "created by JP Harries")
+        creatorField.font = .systemFont(ofSize: 12, weight: .medium)
+
+        stack.addArrangedSubview(creatorField)
+        stack.addArrangedSubview(makeLinkField(label: "GitHub: ", url: projectURL))
+        stack.addArrangedSubview(makeLinkField(label: "ellamind: ", url: ellamindURL))
+        stack.frame = NSRect(x: 0, y: 0, width: 360, height: 82)
+        return stack
+    }
+
+    private func makeLinkField(label: String, url: URL) -> NSTextField {
+        let field = NSTextField(labelWithString: "")
+        field.allowsEditingTextAttributes = true
+        field.isSelectable = true
+
+        let fullText = "\(label)\(url.absoluteString)"
+        let value = NSMutableAttributedString(string: fullText)
+        value.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: NSRange(location: 0, length: label.count))
+        value.addAttribute(.link, value: url, range: NSRange(location: label.count, length: url.absoluteString.count))
+        value.addAttribute(.foregroundColor, value: NSColor.linkColor, range: NSRange(location: label.count, length: url.absoluteString.count))
+        value.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: NSRange(location: label.count, length: url.absoluteString.count))
+        field.attributedStringValue = value
+        return field
     }
 
     @objc

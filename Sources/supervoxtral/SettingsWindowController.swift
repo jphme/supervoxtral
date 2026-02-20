@@ -113,48 +113,13 @@ private extension SettingsWindowController {
     func configureUI() {
         guard let window, let contentView = window.contentView else { return }
 
-        contentView.translatesAutoresizingMaskIntoConstraints = false
-
-        let scrollView = NSScrollView()
-        scrollView.translatesAutoresizingMaskIntoConstraints = false
-        scrollView.hasVerticalScroller = true
-        scrollView.borderType = .noBorder
-        scrollView.drawsBackground = false
-        contentView.addSubview(scrollView)
-
-        let formContainer = NSView()
-        formContainer.translatesAutoresizingMaskIntoConstraints = false
-        scrollView.documentView = formContainer
-
-        let formStack = NSStackView()
-        formStack.translatesAutoresizingMaskIntoConstraints = false
-        formStack.orientation = .vertical
-        formStack.spacing = 14
-        formStack.alignment = .leading
-        formContainer.addSubview(formStack)
+        window.minSize = NSSize(width: 700, height: 760)
 
         let buttonBar = NSStackView()
         buttonBar.translatesAutoresizingMaskIntoConstraints = false
         buttonBar.orientation = .horizontal
         buttonBar.spacing = 8
         contentView.addSubview(buttonBar)
-
-        NSLayoutConstraint.activate([
-            scrollView.topAnchor.constraint(equalTo: contentView.topAnchor),
-            scrollView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: buttonBar.topAnchor, constant: -12),
-
-            buttonBar.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20),
-            buttonBar.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20),
-            buttonBar.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16),
-
-            formContainer.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
-            formStack.topAnchor.constraint(equalTo: formContainer.topAnchor, constant: 16),
-            formStack.leadingAnchor.constraint(equalTo: formContainer.leadingAnchor, constant: 20),
-            formStack.trailingAnchor.constraint(equalTo: formContainer.trailingAnchor, constant: -20),
-            formStack.bottomAnchor.constraint(equalTo: formContainer.bottomAnchor, constant: -16),
-        ])
 
         modelStatusField.font = .systemFont(ofSize: 12, weight: .medium)
         modelProgressIndicator.minValue = 0
@@ -173,50 +138,87 @@ private extension SettingsWindowController {
         transcriptPrefixTextView.isRichText = false
         transcriptPrefixTextView.usesFontPanel = false
         transcriptPrefixTextView.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        transcriptPrefixTextView.textColor = .labelColor
+        transcriptPrefixTextView.backgroundColor = .textBackgroundColor
+        transcriptPrefixTextView.insertionPointColor = .labelColor
+        transcriptPrefixTextView.isEditable = true
+        transcriptPrefixTextView.isSelectable = true
         transcriptSuffixTextView.isRichText = false
         transcriptSuffixTextView.usesFontPanel = false
         transcriptSuffixTextView.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        transcriptSuffixTextView.textColor = .labelColor
+        transcriptSuffixTextView.backgroundColor = .textBackgroundColor
+        transcriptSuffixTextView.insertionPointColor = .labelColor
+        transcriptSuffixTextView.isEditable = true
+        transcriptSuffixTextView.isSelectable = true
 
-        let heading = NSTextField(labelWithString: "Runtime")
-        heading.font = .systemFont(ofSize: 14, weight: .semibold)
-        formStack.addArrangedSubview(heading)
-        formStack.addArrangedSubview(makeFieldGroup(title: "Settings file", control: settingsPathField, helpText: "Saved settings are reloaded automatically while the app is running."))
-        formStack.addArrangedSubview(makeFieldGroup(title: "Model cache", control: modelPathField))
-        formStack.addArrangedSubview(makeFieldGroup(title: "Model status", control: modelStatusField))
-        formStack.addArrangedSubview(makeFieldGroup(title: "Model download progress", control: modelProgressIndicator))
+        let runtimeHeading = NSTextField(labelWithString: "Runtime")
+        runtimeHeading.font = .systemFont(ofSize: 14, weight: .semibold)
+        runtimeHeading.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(runtimeHeading)
 
-        let inferenceHeading = NSTextField(labelWithString: "Model and Inference")
-        inferenceHeading.font = .systemFont(ofSize: 14, weight: .semibold)
-        formStack.addArrangedSubview(inferenceHeading)
-        formStack.addArrangedSubview(makeFieldGroup(title: "Model ID", control: modelIdField))
-        formStack.addArrangedSubview(makeFieldGroup(title: "HF token", control: hfTokenField, helpText: "Leave blank for public models."))
-        formStack.addArrangedSubview(makeFieldGroup(title: "MLX device", control: mlxDeviceField))
-        formStack.addArrangedSubview(makeFieldGroup(title: "Model load timeout (seconds)", control: modelTimeoutField))
-        formStack.addArrangedSubview(makeFieldGroup(title: "Language", control: languageField))
-        formStack.addArrangedSubview(makeFieldGroup(title: "Temperature", control: temperatureField))
-        formStack.addArrangedSubview(makeFieldGroup(title: "Max tokens", control: maxTokensField))
-        formStack.addArrangedSubview(makeFieldGroup(title: "Transcription delay (ms)", control: transcriptionDelayField))
-        formStack.addArrangedSubview(makeFieldGroup(title: "Context window (seconds)", control: contextWindowField))
+        let runtimeStack = makeVerticalStack(spacing: 10)
+        runtimeStack.addArrangedSubview(makeFieldGroup(
+            title: "Settings file",
+            control: settingsPathField,
+            helpText: "Saved settings are reloaded automatically while the app is running."
+        ))
+        runtimeStack.addArrangedSubview(makeFieldGroup(title: "Model cache", control: modelPathField))
+        runtimeStack.addArrangedSubview(makeFieldGroup(title: "Model status", control: modelStatusField))
+        runtimeStack.addArrangedSubview(makeFieldGroup(title: "Model download progress", control: modelProgressIndicator))
+        contentView.addSubview(runtimeStack)
 
-        let captureHeading = NSTextField(labelWithString: "Capture and Hotkey")
-        captureHeading.font = .systemFont(ofSize: 14, weight: .semibold)
-        formStack.addArrangedSubview(captureHeading)
-        formStack.addArrangedSubview(makeFieldGroup(title: "Hotkey", control: hotkeyField))
-        formStack.addArrangedSubview(makeFieldGroup(title: "Decode interval (ms)", control: decodeIntervalField))
-        formStack.addArrangedSubview(makeFieldGroup(title: "Min samples for decode", control: minSamplesField))
+        let tabView = NSTabView()
+        tabView.translatesAutoresizingMaskIntoConstraints = false
+        tabView.tabViewType = .topTabsBezelBorder
 
-        let biasHeading = NSTextField(labelWithString: "Content Bias")
-        biasHeading.font = .systemFont(ofSize: 14, weight: .semibold)
-        formStack.addArrangedSubview(biasHeading)
-        formStack.addArrangedSubview(makeFieldGroup(title: "Bias terms", control: contentBiasTokenField, helpText: "Up to 100 terms. Use Enter or comma to add each term."))
-        formStack.addArrangedSubview(makeFieldGroup(title: "Bias strength", control: contentBiasStrengthField))
-        formStack.addArrangedSubview(makeFieldGroup(title: "First-token factor", control: contentBiasFirstTokenFactorField))
+        tabView.addTabViewItem(makeTabItem(
+            title: "General",
+            groups: [
+                makeFieldGroup(title: "Model ID", control: modelIdField),
+                makeFieldGroup(title: "HF token", control: hfTokenField, helpText: "Leave blank for public models."),
+                makeFieldGroup(title: "MLX device", control: mlxDeviceField),
+                makeFieldGroup(title: "Model load timeout (seconds)", control: modelTimeoutField),
+                makeFieldGroup(title: "Language", control: languageField),
+                makeFieldGroup(title: "Temperature", control: temperatureField),
+                makeFieldGroup(title: "Max tokens", control: maxTokensField),
+                makeFieldGroup(title: "Transcription delay (ms)", control: transcriptionDelayField),
+                makeFieldGroup(title: "Context window (seconds)", control: contextWindowField),
+                makeFieldGroup(title: "Hotkey", control: hotkeyField),
+                makeFieldGroup(title: "Decode interval (ms)", control: decodeIntervalField),
+                makeFieldGroup(title: "Min samples for decode", control: minSamplesField),
+            ]
+        ))
 
-        let outputHeading = NSTextField(labelWithString: "Transcription Framing")
-        outputHeading.font = .systemFont(ofSize: 14, weight: .semibold)
-        formStack.addArrangedSubview(outputHeading)
-        formStack.addArrangedSubview(makeFieldGroup(title: "Transcript prefix", control: prefixScrollView, helpText: "Inserted once when dictation starts."))
-        formStack.addArrangedSubview(makeFieldGroup(title: "Transcript suffix", control: suffixScrollView, helpText: "Inserted once when dictation stops."))
+        tabView.addTabViewItem(makeTabItem(
+            title: "Content Bias",
+            groups: [
+                makeFieldGroup(
+                    title: "Bias terms",
+                    control: contentBiasTokenField,
+                    helpText: "Up to 100 terms. Use Enter or comma to add each term."
+                ),
+                makeFieldGroup(title: "Bias strength", control: contentBiasStrengthField),
+                makeFieldGroup(title: "First-token factor", control: contentBiasFirstTokenFactorField),
+            ]
+        ))
+
+        tabView.addTabViewItem(makeTabItem(
+            title: "Framing",
+            groups: [
+                makeFieldGroup(
+                    title: "Transcript prefix",
+                    control: prefixScrollView,
+                    helpText: "Inserted once when dictation starts."
+                ),
+                makeFieldGroup(
+                    title: "Transcript suffix",
+                    control: suffixScrollView,
+                    helpText: "Inserted once when dictation stops."
+                ),
+            ]
+        ))
+        contentView.addSubview(tabView)
 
         let openSettingsButton = NSButton(title: "Open Settings File", target: self, action: #selector(openSettingsFile))
         let openModelCacheButton = NSButton(title: "Open Model Cache", target: self, action: #selector(openModelCache))
@@ -239,6 +241,26 @@ private extension SettingsWindowController {
         buttonBar.addArrangedSubview(spacer)
         buttonBar.addArrangedSubview(cancelButton)
         buttonBar.addArrangedSubview(saveButton)
+
+        NSLayoutConstraint.activate([
+            runtimeHeading.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 14),
+            runtimeHeading.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20),
+            runtimeHeading.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -20),
+
+            runtimeStack.topAnchor.constraint(equalTo: runtimeHeading.bottomAnchor, constant: 6),
+            runtimeStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20),
+            runtimeStack.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -20),
+
+            tabView.topAnchor.constraint(equalTo: runtimeStack.bottomAnchor, constant: 12),
+            tabView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20),
+            tabView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20),
+            tabView.heightAnchor.constraint(greaterThanOrEqualToConstant: 440),
+
+            buttonBar.topAnchor.constraint(equalTo: tabView.bottomAnchor, constant: 12),
+            buttonBar.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20),
+            buttonBar.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20),
+            buttonBar.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16),
+        ])
     }
 
     func populate(with settings: AppSettings) {
@@ -268,17 +290,53 @@ private extension SettingsWindowController {
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.borderType = .bezelBorder
-        scrollView.drawsBackground = false
+        scrollView.drawsBackground = true
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.heightAnchor.constraint(equalToConstant: 86).isActive = true
 
-        textView.translatesAutoresizingMaskIntoConstraints = false
+        textView.drawsBackground = true
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
+        textView.minSize = NSSize(width: 0, height: 0)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.textContainerInset = NSSize(width: 6, height: 6)
+        textView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
         textView.textContainer?.widthTracksTextView = true
         scrollView.documentView = textView
         return scrollView
+    }
+
+    func makeVerticalStack(spacing: CGFloat) -> NSStackView {
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = spacing
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        return stack
+    }
+
+    func makeTabItem(title: String, groups: [NSView]) -> NSTabViewItem {
+        let container = NSView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+
+        let stack = makeVerticalStack(spacing: 10)
+        for group in groups {
+            stack.addArrangedSubview(group)
+        }
+        container.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 14),
+            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 14),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -14),
+            stack.bottomAnchor.constraint(lessThanOrEqualTo: container.bottomAnchor, constant: -14),
+        ])
+
+        let item = NSTabViewItem(identifier: title)
+        item.label = title
+        item.view = container
+        return item
     }
 
     func makeFieldGroup(title: String, control: NSView, helpText: String? = nil) -> NSView {

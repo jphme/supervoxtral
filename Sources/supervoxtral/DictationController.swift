@@ -32,6 +32,9 @@ final class DictationController: @unchecked Sendable {
     private var committedText = ""
     private var isModelLoading = false
     private var resumeListeningAfterReload = false
+    private var didInjectPrefixForSession = false
+    private var didReportPrefixInjectionFailureForSession = false
+    private var bufferedTranscriptBeforePrefix = ""
 
     private static let samplesPerToken = 1280
 
@@ -275,10 +278,13 @@ final class DictationController: @unchecked Sendable {
         }
 
         committedText = ""
+        bufferedTranscriptBeforePrefix = ""
+        didInjectPrefixForSession = settings.transcriptPrefix.isEmpty
+        didReportPrefixInjectionFailureForSession = false
         decodeBuffer.removeAll(keepingCapacity: true)
         emptyDecodeSamples = 0
         isListening = true
-        injectFramingTextIfNeeded(settings.transcriptPrefix, stage: "prefix")
+        _ = ensurePrefixInjectedIfNeeded()
         log("Listening started")
         emitState(.listening)
         emitStatusDetail("Listening")
@@ -339,7 +345,16 @@ final class DictationController: @unchecked Sendable {
             }
             injectDeltaIfNeeded(flushed)
         }
-        injectFramingTextIfNeeded(settings.transcriptSuffix, stage: "suffix")
+        flushBufferedTranscriptIfPossible()
+
+        if !settings.transcriptSuffix.isEmpty {
+            if settings.transcriptPrefix.isEmpty || didInjectPrefixForSession || ensurePrefixInjectedIfNeeded() {
+                flushBufferedTranscriptIfPossible()
+                injectFramingTextIfNeeded(settings.transcriptSuffix, stage: "suffix")
+            } else {
+                emitError("Skipping text suffix injection because prefix was not inserted.")
+            }
+        }
 
         capture.stop()
         capture.reset()
@@ -349,6 +364,9 @@ final class DictationController: @unchecked Sendable {
         isDecoding = false
         emptyDecodeSamples = 0
         committedText = ""
+        bufferedTranscriptBeforePrefix = ""
+        didInjectPrefixForSession = false
+        didReportPrefixInjectionFailureForSession = false
         log("Listening stopped")
 
         emitStatusDetail("Ready")
@@ -419,16 +437,18 @@ final class DictationController: @unchecked Sendable {
     private func injectDeltaIfNeeded(_ delta: String) {
         guard !delta.isEmpty else { return }
 
-        do {
-            try injector.insert(delta)
-            committedText += delta
-            let textForUI = committedText
-            DispatchQueue.main.async {
-                self.onTranscript?(textForUI)
-            }
-        } catch {
-            emitError("Text injection failed: \(error.localizedDescription)")
+        if !ensurePrefixInjectedIfNeeded() {
+            bufferedTranscriptBeforePrefix += delta
+            return
         }
+
+        if !bufferedTranscriptBeforePrefix.isEmpty {
+            bufferedTranscriptBeforePrefix += delta
+            flushBufferedTranscriptIfPossible()
+            return
+        }
+
+        _ = injectTranscriptChunk(delta, bufferOnFailure: true)
     }
 
     private func injectFramingTextIfNeeded(_ text: String, stage: String) {
@@ -437,6 +457,61 @@ final class DictationController: @unchecked Sendable {
             try injector.insert(text)
         } catch {
             emitError("Text \(stage) injection failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func ensurePrefixInjectedIfNeeded() -> Bool {
+        if didInjectPrefixForSession {
+            return true
+        }
+
+        let prefix = settings.transcriptPrefix
+        if prefix.isEmpty {
+            didInjectPrefixForSession = true
+            return true
+        }
+
+        do {
+            try injector.insert(prefix)
+            didInjectPrefixForSession = true
+            didReportPrefixInjectionFailureForSession = false
+            return true
+        } catch {
+            if !didReportPrefixInjectionFailureForSession {
+                emitError("Text prefix injection failed: \(error.localizedDescription)")
+                didReportPrefixInjectionFailureForSession = true
+            }
+            return false
+        }
+    }
+
+    private func flushBufferedTranscriptIfPossible() {
+        guard !bufferedTranscriptBeforePrefix.isEmpty else { return }
+        guard ensurePrefixInjectedIfNeeded() else { return }
+
+        let buffered = bufferedTranscriptBeforePrefix
+        bufferedTranscriptBeforePrefix = ""
+        _ = injectTranscriptChunk(buffered, bufferOnFailure: true)
+    }
+
+    @discardableResult
+    private func injectTranscriptChunk(_ chunk: String, bufferOnFailure: Bool) -> Bool {
+        guard !chunk.isEmpty else { return true }
+
+        do {
+            try injector.insert(chunk)
+            committedText += chunk
+            let textForUI = committedText
+            DispatchQueue.main.async {
+                self.onTranscript?(textForUI)
+            }
+            return true
+        } catch {
+            if bufferOnFailure {
+                bufferedTranscriptBeforePrefix = chunk + bufferedTranscriptBeforePrefix
+            }
+            emitError("Text injection failed: \(error.localizedDescription)")
+            return false
         }
     }
 

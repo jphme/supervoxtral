@@ -32,7 +32,11 @@ STAGING_DIR="$(mktemp -d -t supervoxtral-dmg.XXXXXX)"
 trap 'rm -rf "$STAGING_DIR"' EXIT
 
 cp -R "$APP_PATH" "$STAGING_DIR/Supervoxtral.app"
-ln -s /Applications "$STAGING_DIR/Applications"
+# Some environments follow this symlink during image creation and fail with
+# a false "no space left on device" error. Keep it opt-in for reliability.
+if [[ "${SUPERVOXTRAL_DMG_ADD_APPLICATIONS_LINK:-0}" == "1" ]]; then
+  ln -s /Applications "$STAGING_DIR/Applications"
+fi
 
 rm -f "$DMG_PATH"
 

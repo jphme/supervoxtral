@@ -37,19 +37,13 @@ struct VoxtralRealtimeTekkenFile: Decodable {
 }
 
 final class VoxtralRealtimeTokenizer {
-    private struct EncodingCandidate {
-        let tokenId: Int
-        let rank: Int
-        let bytes: [UInt8]
-    }
-
     let vocab: [VoxtralRealtimeTekkenFile.VocabEntry]
     let nSpecial: Int
     let specialIds: Set<Int>
 
     private let tokenPattern: NSRegularExpression?
     private var bytesCache: [Int: [UInt8]] = [:]
-    private var encodingCandidatesByFirstByte: [UInt8: [EncodingCandidate]]?
+    private var mergeableRanks: [Data: Int]?
 
     init(tekkenURL: URL) throws {
         let data = try Data(contentsOf: tekkenURL)
@@ -134,83 +128,73 @@ final class VoxtralRealtimeTokenizer {
 
     private func encodeSegment(bytes: [UInt8]) -> [Int]? {
         guard !bytes.isEmpty else { return [] }
-        let candidates = buildEncodingCandidatesByFirstByte()
-        let n = bytes.count
+        let ranks = buildMergeableRanks()
 
-        var bestTokenCount = Array(repeating: Int.max, count: n + 1)
-        var bestRankSum = Array(repeating: Int.max, count: n + 1)
-        var nextIndex = Array(repeating: -1, count: n)
-        var nextTokenID = Array(repeating: -1, count: n)
+        // tiktoken-style byte pair encoding:
+        // start from raw bytes and repeatedly merge the adjacent pair with the
+        // best (lowest) merge rank until no valid merge remains.
+        var parts = bytes.map { Data([$0]) }
+        if parts.count == 1 {
+            guard let rank = ranks[parts[0]] else { return nil }
+            return [nSpecial + rank]
+        }
 
-        bestTokenCount[n] = 0
-        bestRankSum[n] = 0
+        while parts.count > 1 {
+            var bestPairIndex: Int?
+            var bestPairRank = Int.max
 
-        for i in stride(from: n - 1, through: 0, by: -1) {
-            guard let segmentCandidates = candidates[bytes[i]] else { continue }
+            for i in 0..<(parts.count - 1) {
+                var merged = Data()
+                merged.reserveCapacity(parts[i].count + parts[i + 1].count)
+                merged.append(parts[i])
+                merged.append(parts[i + 1])
 
-            for candidate in segmentCandidates {
-                let end = i + candidate.bytes.count
-                guard end <= n else { continue }
-                guard bestTokenCount[end] != Int.max else { continue }
-                guard bytes[i..<end].elementsEqual(candidate.bytes) else { continue }
-
-                let tokenCount = bestTokenCount[end] + 1
-                let rankSum = bestRankSum[end] == Int.max ? Int.max : bestRankSum[end] + candidate.rank
-
-                if tokenCount < bestTokenCount[i]
-                    || (tokenCount == bestTokenCount[i] && rankSum < bestRankSum[i])
-                {
-                    bestTokenCount[i] = tokenCount
-                    bestRankSum[i] = rankSum
-                    nextIndex[i] = end
-                    nextTokenID[i] = candidate.tokenId
+                if let rank = ranks[merged], rank < bestPairRank {
+                    bestPairRank = rank
+                    bestPairIndex = i
                 }
             }
-        }
 
-        guard bestTokenCount[0] != Int.max else { return nil }
+            guard let mergeIndex = bestPairIndex else {
+                break
+            }
+
+            var merged = Data()
+            merged.reserveCapacity(parts[mergeIndex].count + parts[mergeIndex + 1].count)
+            merged.append(parts[mergeIndex])
+            merged.append(parts[mergeIndex + 1])
+            parts[mergeIndex] = merged
+            parts.remove(at: mergeIndex + 1)
+        }
 
         var output: [Int] = []
-        output.reserveCapacity(bestTokenCount[0])
-        var cursor = 0
-        while cursor < n {
-            let tokenID = nextTokenID[cursor]
-            let end = nextIndex[cursor]
-            guard tokenID >= 0, end > cursor else { return nil }
-            output.append(tokenID)
-            cursor = end
+        output.reserveCapacity(parts.count)
+        for piece in parts {
+            guard let rank = ranks[piece] else {
+                return nil
+            }
+            output.append(nSpecial + rank)
         }
-
         return output
     }
 
-    private func buildEncodingCandidatesByFirstByte() -> [UInt8: [EncodingCandidate]] {
-        if let encodingCandidatesByFirstByte {
-            return encodingCandidatesByFirstByte
+    private func buildMergeableRanks() -> [Data: Int] {
+        if let mergeableRanks {
+            return mergeableRanks
         }
 
-        var map: [UInt8: [EncodingCandidate]] = [:]
-        map.reserveCapacity(256)
+        var map: [Data: Int] = [:]
+        map.reserveCapacity(vocab.count)
 
         for index in vocab.indices {
             let tokenId = nSpecial + index
             let bytes = tokenBytes(for: tokenId)
-            guard !bytes.isEmpty, let first = bytes.first else { continue }
+            guard !bytes.isEmpty else { continue }
             let rank = vocab[index].rank ?? index
-            let candidate = EncodingCandidate(tokenId: tokenId, rank: rank, bytes: bytes)
-            map[first, default: []].append(candidate)
+            map[Data(bytes)] = rank
         }
 
-        for key in map.keys {
-            map[key]?.sort {
-                if $0.bytes.count == $1.bytes.count {
-                    return $0.rank < $1.rank
-                }
-                return $0.bytes.count > $1.bytes.count
-            }
-        }
-
-        encodingCandidatesByFirstByte = map
+        mergeableRanks = map
         return map
     }
 

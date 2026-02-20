@@ -20,12 +20,12 @@ struct ContentBiasProcessorTests {
         let processor = ContentBiasProcessor(
             configuration: ContentBiasConfiguration(phrases: ["foobar"], strength: 5.0, firstTokenFactor: 0.2),
             tokenizer: tokenizer,
-            eosTokenId: 2
+            eosTokenId: 15
         )
 
         var logits = [Float](repeating: 0, count: 16)
         logits[1] = 3
-        logits[2] = -10
+        logits[15] = -10
 
         let deltas = try #require(processor.biasDeltas(for: logits))
         #expect(abs(deltas[firstToken] - 1.0) < 1e-5)
@@ -45,19 +45,20 @@ struct ContentBiasProcessorTests {
         let processor = ContentBiasProcessor(
             configuration: ContentBiasConfiguration(phrases: ["foobar"], strength: 5.0, firstTokenFactor: 0.2),
             tokenizer: tokenizer,
-            eosTokenId: 2
+            eosTokenId: 15
         )
 
         processor.update(tokenId: firstToken)
 
         var logits = [Float](repeating: -20, count: 16)
-        logits[1] = 4
-        logits[2] = -20
+        let competingToken = (0..<logits.count).first { $0 != continuationToken && $0 != 15 } ?? 0
+        logits[competingToken] = 4
+        logits[15] = -100
         logits[continuationToken] = -25
 
         let deltas = try #require(processor.biasDeltas(for: logits))
         #expect(abs(deltas[continuationToken] - 34.0) < 1e-4)
-        #expect(abs(deltas[1]) < 1e-4)
+        #expect(abs(deltas[competingToken]) < 1e-4)
     }
 
     @Test
@@ -66,12 +67,12 @@ struct ContentBiasProcessorTests {
         let processor = ContentBiasProcessor(
             configuration: ContentBiasConfiguration(phrases: ["foobar"], strength: 5.0, firstTokenFactor: 0.2),
             tokenizer: tokenizer,
-            eosTokenId: 2
+            eosTokenId: 15
         )
 
         var logits = [Float](repeating: 0, count: 16)
         logits[1] = 10
-        logits[2] = 7
+        logits[15] = 7
 
         #expect(processor.biasDeltas(for: logits) == nil)
     }

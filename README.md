@@ -1,186 +1,174 @@
-# Supervoxtral
+<p align="center">
+  <img src="assets/AppIcon.png" width="128" height="128" alt="Supervoxtral icon">
+</p>
 
-Native macOS menubar realtime dictation app using MLX + Voxtral Mini Realtime 8bit.
+<h1 align="center">Supervoxtral</h1>
 
-## Highlights
+<p align="center">
+  Blazingly-fast realtime speech-to-text for macOS, powered by <a href="https://mistral.ai/">Mistral AI</a>'s Voxtral model running locally on Apple Silicon via <a href="https://github.com/ml-explore/mlx-swift">MLX</a>.
+</p>
 
-- Native menubar app with clear status states: loading, ready, listening, error.
-- Real Preferences UI (no manual JSON editing required for normal use).
-- Live model status with a visual download indicator.
-- Model cache path surfaced directly in the menu and Preferences.
-- Streaming inference pipeline (incremental encoder + decoder KV cache).
-- `content_bias` support via local trie-based logit boosting.
-- Optional transcript prefix/suffix framing for AI prompt wrappers.
+<p align="center">
+  <a href="https://github.com/jphme/supervoxtral/releases/latest"><img src="https://img.shields.io/github/v/release/jphme/supervoxtral?style=flat-square" alt="Latest Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT License"></a>
+  <img src="https://img.shields.io/badge/platform-macOS%2014%2B-orange?style=flat-square" alt="macOS 14+">
+  <img src="https://img.shields.io/badge/chip-Apple%20Silicon-black?style=flat-square" alt="Apple Silicon">
+</p>
+
+---
+
+## Features
+
+- **Realtime streaming transcription** -- text appears at your cursor as you speak, with near-zero latency
+- **Works everywhere** -- types directly into any app (editors, terminals, chat, browsers) via macOS Accessibility
+- **100% local & private** -- the model runs entirely on your Mac; no audio ever leaves your device
+- **Prompt-friendly** -- optional prefix/suffix wrapping (e.g. `<transcript>...</transcript>`) so LLMs know the text is dictated, perfect for vibe-coding and AI workflows
+- **Custom vocabulary** -- boost recognition of domain-specific terms, product names, or technical jargon via content bias
+- **Lightweight menubar app** -- lives in your status bar, toggle with a hotkey (default: right Command key)
 
 ## Requirements
 
-- macOS 14+
-- Apple Silicon recommended
-- Swift toolchain (Xcode or command line tools)
-- Optional: `HF_TOKEN` for gated/private models
+|   | Minimum |
+| --- | --- |
+| **macOS** | 14.0 (Sonoma) |
+| **Chip** | Apple Silicon (M1 / M2 / M3 / M4) |
+| **Memory** | 16 GB unified memory |
 
-## Run From Source
+## Installation
+
+### Download (recommended)
+
+Grab the latest `.dmg` from the [Releases page](https://github.com/jphme/supervoxtral/releases/latest), open it, and drag **Supervoxtral** into your Applications folder.
+
+### Build from source
 
 ```bash
-swift run --disable-sandbox supervoxtral
+git clone https://github.com/jphme/supervoxtral.git
+cd supervoxtral
+./scripts/build_app.sh
+open dist/Supervoxtral.app
 ```
 
-## Build App Bundle
+> Requires Xcode command-line tools and Python `mlx==0.30.3` for the Metal shader library. See [Building](#building-from-source) below for details.
+
+## Quick Start
+
+1. Launch **Supervoxtral** -- it appears as a microphone icon in your menubar.
+2. On first launch, grant **Microphone** and **Accessibility** permissions when prompted.
+3. The model downloads automatically (~4 GB, cached for future launches).
+4. Press and hold the **right Command** key to dictate. Release to stop.
+5. Text streams live into whatever app has focus.
+
+## Configuration
+
+Open **Preferences** from the menubar icon to configure common settings through the GUI. Advanced settings can be edited in:
+
+```text
+~/Library/Application Support/Supervoxtral/settings.json
+```
+
+### Hotkey
+
+Default: `right_cmd` (right Command key). Change via Preferences or `"hotkey"` in settings.
+
+### Content Bias (Custom Vocabulary)
+
+Boost recognition accuracy for specific terms by adding them to the `contentBias` list:
+
+```json
+{
+  "contentBias": ["Supervoxtral", "MLX", "Kubernetes", "PostgreSQL"],
+  "contentBiasStrength": 5.0
+}
+```
+
+This uses local trie-based logit boosting -- no cloud calls, no extra latency.
+
+### Transcript Prefix / Suffix
+
+Wrap dictated text with markers so downstream tools know it's a transcript:
+
+```json
+{
+  "transcriptPrefix": "<transcript>\n",
+  "transcriptSuffix": "\n</transcript>"
+}
+```
+
+The prefix is injected when dictation starts, the suffix when it stops. Useful for prompt engineering and AI-assisted workflows.
+
+### Language
+
+Set `"language"` to an ISO code (e.g. `"en"`, `"de"`, `"fr"`) or leave as `"auto"` for automatic detection.
+
+## Permissions
+
+Supervoxtral requires two macOS permissions:
+
+- **Microphone** -- for audio capture during dictation
+- **Accessibility** -- for typing text into the focused application
+
+Both can be granted from the menubar menu or System Settings > Privacy & Security.
+
+## Troubleshooting
+
+| Problem | Solution |
+| --- | --- |
+| Text doesn't appear | Grant Accessibility permission in System Settings > Privacy & Security > Accessibility |
+| No audio input | Grant Microphone permission; check that the correct input device is selected |
+| Model download stalls | Set `HF_TOKEN` environment variable if using a gated model |
+| High memory usage | Ensure you have at least 16 GB RAM; close memory-heavy apps during first model load |
+
+Logs: `~/Library/Logs/Supervoxtral/app.log`
+
+```bash
+tail -f ~/Library/Logs/Supervoxtral/app.log
+```
+
+---
+
+## Building from Source
+
+### Prerequisites
+
+- macOS 14+, Apple Silicon
+- Xcode command-line tools (`xcode-select --install`)
+- Python `mlx==0.30.3` (for the Metal shader library)
+
+### Build App Bundle
 
 ```bash
 ./scripts/build_app.sh
 open dist/Supervoxtral.app
 ```
 
-Packaging note: `build_app.sh` bundles `mlx.metallib` and expects Python `mlx==0.30.3` (matching `mlx-swift` in this repo).
-
-## Build Installable DMG
+### Build Installable DMG
 
 ```bash
 ./scripts/build_dmg.sh
 open dist/Supervoxtral-$(cat VERSION).dmg
 ```
 
-`build_dmg.sh` builds `dist/Supervoxtral-<version>.dmg` and includes:
-- `Supervoxtral.app`
-- `Applications` shortcut for drag-and-drop install
-
-## Settings
-
-Template defaults:
-- `config/settings.json`
-
-Runtime settings (user machine, not committed):
-- `~/Library/Application Support/Supervoxtral/settings.json`
-
-Lookup order:
-1. `SUPERVOXTRAL_SETTINGS`
-2. `./config/settings.json`
-3. `~/Library/Application Support/Supervoxtral/settings.json`
-
-Key defaults:
-
-```json
-{
-  "modelId": "ellamind/Voxtral-Mini-4B-Realtime-8bit-mlx",
-  "hotkey": "right_cmd",
-  "decodeIntervalMs": 40,
-  "minSamplesForDecode": 1280,
-  "language": "auto",
-  "temperature": 0,
-  "maxTokens": 512,
-  "transcriptionDelayMs": 480,
-  "mlxDevice": "gpu",
-  "contentBias": [],
-  "contentBiasStrength": 5.0,
-  "contentBiasFirstTokenFactor": 0.2,
-  "transcriptPrefix": "",
-  "transcriptSuffix": ""
-}
-```
-
-### `content_bias`
-
-The local implementation mirrors the Python prototype approach in `docs/content_bias.md`:
-
-- Prefix-trie token matching over configured terms/phrases.
-- Continuation token boosting to `max_logit + strength`.
-- Mild first-token boost via `contentBiasFirstTokenFactor`.
-- EOS guard to avoid unwanted biasing when the model should stop.
-
-Related settings:
-- `contentBias`: list of terms/phrases (up to 100)
-- `contentBiasStrength`: continuation boost strength (default `5.0`)
-- `contentBiasFirstTokenFactor`: first-token fraction (default `0.2`)
-
-Aliases from older configs are supported:
-- `contextBias` / `context_bias`
-- `contextBiasStrength` / `context_bias_strength`
-- `contextBiasFirstTokenFactor` / `context_bias_first_token_factor`
-
-### Transcript Prefix/Suffix
-
-Use:
-- `transcriptPrefix`
-- `transcriptSuffix`
-
-Behavior:
-- Prefix is injected once when dictation starts.
-- Streaming transcription is injected in the middle.
-- Suffix is injected once when dictation stops.
-
-Useful for wrapping transcription inside XML-like prompt scaffolding before sending text to AI tools.
-
-## Permissions
-
-- Microphone permission is requested on first launch.
-- Accessibility permission is required for text injection.
-
-Menu shortcuts:
-- `Grant Accessibility`
-- `Open Microphone Settings`
-
-## Diagnostics
-
-App log:
-- `~/Library/Logs/Supervoxtral/app.log`
-
-Crash reports:
-- `~/Library/Logs/DiagnosticReports/Supervoxtral-*.ips`
-
-Model cache:
-- `~/Library/Caches/supervoxtral/ellamind_Voxtral-Mini-4B-Realtime-8bit-mlx`
-
-Useful commands:
+### Run from Source (development)
 
 ```bash
-pkill -f Supervoxtral || true
-rm -f ~/Library/Logs/Supervoxtral/app.log
-open dist/Supervoxtral.app
-sleep 3
-tail -n 200 -f ~/Library/Logs/Supervoxtral/app.log
+swift run --disable-sandbox supervoxtral
 ```
 
-## Tests
-
-Run focused unit tests:
+### Tests
 
 ```bash
 swift test --disable-sandbox -c debug --filter "(ContentBiasProcessorTests|SettingsTests)"
 ```
 
-Run integration streaming stress test (requires audio/model environment):
-
-```bash
-uv run python tests/integration_streaming_soundfile.py
-```
-
-## Maintainer Release Flow
-
-### Local CLI release command
+### Release
 
 ```bash
 ./scripts/release_github.sh v0.1.0
 ```
 
-What it does:
-- validates clean git state and `gh` auth
-- pushes branch + tag
-- builds versioned DMG
-- creates GitHub release and uploads DMG
+Pushes a tag, builds the DMG, and creates a GitHub Release. Add `--draft` for draft releases. CI (`.github/workflows/release.yml`) also builds on tag push.
 
-Use draft releases:
+## License
 
-```bash
-./scripts/release_github.sh v0.1.0 --draft
-```
-
-### GitHub Actions release workflow
-
-File:
-- `.github/workflows/release.yml`
-
-Trigger:
-- push tag `v*`
-
-It builds the DMG on macOS and publishes it as a downloadable GitHub Release asset.
+Supervoxtral is open source under the [MIT License](LICENSE).

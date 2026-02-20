@@ -173,6 +173,8 @@ cat > "$CONTENTS/Info.plist" <<PLIST
   <string>${BUILD_NUMBER}</string>
   <key>LSMinimumSystemVersion</key>
   <string>14.0</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
   <key>LSUIElement</key>
   <true/>
   <key>NSMicrophoneUsageDescription</key>
@@ -182,6 +184,7 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 PLIST
 
 cp "$ROOT_DIR/config/settings.json" "$RESOURCES/settings.default.json"
+cp "$ROOT_DIR/assets/AppIcon.icns" "$RESOURCES/AppIcon.icns"
 
 MLX_METALLIB_PATH="$(find_mlx_metallib || true)"
 if [[ -z "$MLX_METALLIB_PATH" ]]; then
