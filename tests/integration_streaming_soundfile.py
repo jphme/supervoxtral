@@ -65,9 +65,31 @@ def build_fixture(tmp: Path) -> Path:
 def ensure_metallib_near_binary() -> None:
     rel = ROOT / ".build/arm64-apple-macosx/release"
     rel.mkdir(parents=True, exist_ok=True)
-    src = ROOT.parent / ".venv/lib/python3.12/site-packages/mlx/lib/mlx.metallib"
-    if not src.exists():
-        raise SystemExit(f"mlx.metallib not found at {src}")
+
+    candidates = []
+    explicit = os.environ.get("SUPERVOXTRAL_MLX_METALLIB", "").strip()
+    if explicit:
+        candidates.append(Path(explicit))
+
+    candidates.extend(
+        [
+            ROOT.parent / ".venv/lib/python3.12/site-packages/mlx/lib/mlx.metallib",
+            ROOT / ".venv/lib/python3.12/site-packages/mlx/lib/mlx.metallib",
+            Path.home() / ".venv/lib/python3.12/site-packages/mlx/lib/mlx.metallib",
+        ]
+    )
+
+    try:
+        import mlx.core as core
+
+        candidates.append(Path(core.__file__).resolve().parent / "lib" / "mlx.metallib")
+    except Exception:
+        pass
+
+    src = next((c for c in candidates if c.exists()), None)
+    if src is None:
+        raise SystemExit("mlx.metallib not found. Set SUPERVOXTRAL_MLX_METALLIB=/path/to/mlx.metallib")
+
     for name in ("mlx.metallib", "default.metallib"):
         dst = rel / name
         if not dst.exists():

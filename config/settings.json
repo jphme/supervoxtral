@@ -1,4 +1,7 @@
 {
+  "contentBias": [],
+  "contentBiasFirstTokenFactor": 0.2,
+  "contentBiasStrength": 5,
   "contextWindowSeconds": 18,
   "decodeIntervalMs": 40,
   "hfToken": null,
@@ -10,5 +13,7 @@
   "mlxDevice": "gpu",
   "modelLoadTimeoutSeconds": 240,
   "temperature": 0,
+  "transcriptPrefix": "",
+  "transcriptSuffix": "",
   "transcriptionDelayMs": 480
 }

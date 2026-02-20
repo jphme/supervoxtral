@@ -1,130 +1,186 @@
 # Supervoxtral
 
-Native macOS menubar realtime dictation app using Voxtral Mini Realtime 8bit on Apple Silicon.
+Native macOS menubar realtime dictation app using MLX + Voxtral Mini Realtime 8bit.
 
-## Why this stack
+## Highlights
 
-- **Swift + AppKit** for native menubar UX, macOS permissions, global hotkeys, and `.app` packaging.
-- **MLX (swift)** for native Apple-accelerated inference.
-- **Voxtral realtime model code vendored from `mlx-audio-swift`** (target: `VoxtralRuntime`) to keep the app self-contained and avoid a Python runtime.
-
-## Language decision (macOS focus)
-
-- **Chosen: Swift**
-  - First-class macOS app model (`NSApplication`, status bar, permissions APIs, global hotkeys).
-  - Direct access to Apple's MLX Swift runtime for Apple Silicon acceleration.
-  - Clean `.app` packaging with `Info.plist` and ad-hoc signing for local install.
-- **Not chosen: Go (for this app)**
-  - Go can do menu apps, but MLX inference integration is not a first-class path.
-  - Would require bridge layers to Swift/C++ for MLX model execution.
-- **Not chosen: Rust (for this app)**
-  - Great systems language, but macOS desktop + MLX integration would still require heavy FFI/UI glue.
-  - Higher complexity than Swift for a native macOS STT product.
-
-Reference links:
-- [mlx-audio (Python)](https://github.com/Blaizzy/mlx-audio)
-- [MLX](https://github.com/ml-explore/mlx)
-- [Voxtral Mini Realtime 8bit model](https://huggingface.co/ellamind/Voxtral-Mini-4B-Realtime-8bit-mlx)
-
-## Features (v1)
-
-- Menubar status indicator with persistent icon states (loading / ready / listening / error)
-- Global hotkey to toggle dictation (default `right_cmd`)
-- Realtime mic capture at 16 kHz
-- Incremental text injection at current cursor position
-- Streaming inference pipeline (incremental mel + incremental encoder + cached decoder)
-- Model download and cache through Hugging Face Swift client
-- Settings file based configuration
-- Settings hot-reload (polls file changes and applies without app restart)
+- Native menubar app with clear status states: loading, ready, listening, error.
+- Real Preferences UI (no manual JSON editing required for normal use).
+- Live model status with a visual download indicator.
+- Model cache path surfaced directly in the menu and Preferences.
+- Streaming inference pipeline (incremental encoder + decoder KV cache).
+- `content_bias` support via local trie-based logit boosting.
+- Optional transcript prefix/suffix framing for AI prompt wrappers.
 
 ## Requirements
 
 - macOS 14+
-- Apple Silicon Mac recommended
-- Xcode/Swift toolchain available
-- `HF_TOKEN` environment variable for gated model access (if needed)
+- Apple Silicon recommended
+- Swift toolchain (Xcode or command line tools)
+- Optional: `HF_TOKEN` for gated/private models
 
-## Run from source
+## Run From Source
 
 ```bash
 swift run --disable-sandbox supervoxtral
 ```
 
-## Build app bundle
+## Build App Bundle
 
 ```bash
 ./scripts/build_app.sh
 open dist/Supervoxtral.app
 ```
 
+Packaging note: `build_app.sh` bundles `mlx.metallib` and expects Python `mlx==0.30.3` (matching `mlx-swift` in this repo).
+
+## Build Installable DMG
+
+```bash
+./scripts/build_dmg.sh
+open dist/Supervoxtral-$(cat VERSION).dmg
+```
+
+`build_dmg.sh` builds `dist/Supervoxtral-<version>.dmg` and includes:
+- `Supervoxtral.app`
+- `Applications` shortcut for drag-and-drop install
+
 ## Settings
 
-Default settings are in:
-
+Template defaults:
 - `config/settings.json`
 
-Runtime lookup order:
+Runtime settings (user machine, not committed):
+- `~/Library/Application Support/Supervoxtral/settings.json`
 
+Lookup order:
 1. `SUPERVOXTRAL_SETTINGS`
-2. `./config/settings.json` (current working directory)
+2. `./config/settings.json`
 3. `~/Library/Application Support/Supervoxtral/settings.json`
 
-Example:
+Key defaults:
 
 ```json
 {
-  "hfToken": null,
   "modelId": "ellamind/Voxtral-Mini-4B-Realtime-8bit-mlx",
   "hotkey": "right_cmd",
   "decodeIntervalMs": 40,
-  "contextWindowSeconds": 18,
   "minSamplesForDecode": 1280,
+  "language": "auto",
   "temperature": 0,
   "maxTokens": 512,
-  "language": "auto",
   "transcriptionDelayMs": 480,
-  "mlxDevice": "gpu"
+  "mlxDevice": "gpu",
+  "contentBias": [],
+  "contentBiasStrength": 5.0,
+  "contentBiasFirstTokenFactor": 0.2,
+  "transcriptPrefix": "",
+  "transcriptSuffix": ""
 }
 ```
 
-Set `"hfToken"` only if your selected model requires authentication.
+### `content_bias`
 
-Setting details:
-- `modelId`: Hugging Face repo id for the MLX Voxtral realtime model.
-- `hfToken`: optional token for gated/private models.
-- `hotkey`: `right_cmd` (recommended) or combo format like `ctrl+alt+cmd+space`.
-- `mlxDevice`: `gpu` (Apple Silicon Metal) or `cpu`.
-- `decodeIntervalMs`: tick interval for streaming decode/injection loop.
-- `maxTokens`: max generated tokens per utterance before forced stop.
-- `temperature`: `0` for deterministic greedy decode; higher values increase variability.
-- `language`: `auto` (recommended for mixed EN/DE), or fixed tag such as `en` / `de`.
-- `transcriptionDelayMs`: streaming delay trade-off; higher values usually improve punctuation/word boundary stability at the cost of latency.
-- `contextWindowSeconds`: legacy compatibility field; retained in config format.
-- `minSamplesForDecode`: minimum audio batch size (samples at 16kHz) before a decode pass. `1280` is 80ms and is the realtime-recommended default.
+The local implementation mirrors the Python prototype approach in `docs/content_bias.md`:
 
-Hot-reload behavior:
-- Saving `settings.json` while the app is running applies changes automatically (within ~2s).
-- `hotkey` and `decodeIntervalMs` apply immediately.
-- `temperature`, `maxTokens`, `language`, `transcriptionDelayMs` rebuild the streaming session.
-- `modelId`, `hfToken`, `mlxDevice` trigger model/runtime reload.
+- Prefix-trie token matching over configured terms/phrases.
+- Continuation token boosting to `max_logit + strength`.
+- Mild first-token boost via `contentBiasFirstTokenFactor`.
+- EOS guard to avoid unwanted biasing when the model should stop.
 
-## macOS permissions
+Related settings:
+- `contentBias`: list of terms/phrases (up to 100)
+- `contentBiasStrength`: continuation boost strength (default `5.0`)
+- `contentBiasFirstTokenFactor`: first-token fraction (default `0.2`)
 
-- **Microphone**: requested by the app on launch.
-- **Accessibility**: required for text injection at cursor position.
-  - Trigger prompt via menubar: `Grant Accessibility`.
+Aliases from older configs are supported:
+- `contextBias` / `context_bias`
+- `contextBiasStrength` / `context_bias_strength`
+- `contextBiasFirstTokenFactor` / `context_bias_first_token_factor`
 
-## Notes
+### Transcript Prefix/Suffix
 
-- This implementation is append-only for realtime cursor injection (it does not backspace previously typed text).
-- First model download can be several GB and takes time.
-- The app log is written to `~/Library/Logs/Supervoxtral/app.log` with operational events only.
+Use:
+- `transcriptPrefix`
+- `transcriptSuffix`
 
-## Engineering Learnings
+Behavior:
+- Prefix is injected once when dictation starts.
+- Streaming transcription is injected in the middle.
+- Suffix is injected once when dictation stops.
 
-- **Bundle MLX shaders in the app**: On machines with Command Line Tools only (without full Xcode Metal toolchain), MLX can fail to locate `default.metallib` at runtime. The build script now bundles `mlx.metallib` into the app and startup validates it before model load.
-- **Use true streaming, not periodic full-window re-decode**: Full context re-decode each timer tick causes latency spikes and clunky UX. Incremental `encode_step` + decoder KV cache yields stable realtime behavior.
-- **Precompute static tensors and warm up kernels**: Prompt/text conditioning tensors are computed once per model load, and a warmup pass compiles hot kernels before the first live dictation.
-- **Bound long-running cache growth**: Encoder attention uses sliding-window cache behavior so long sessions do not degrade over time.
-- **Force graph materialization after concat/slice**: MLX is lazy; repeated concatenation without `eval()` creates large deferred graphs and eventual slowdown. Streaming path explicitly materializes these steps.
-- **Batch controller decode on token boundaries**: Running decode on sub-token audio slices increases overhead and can cause visible stalls. Controller now batches at token-aligned sample counts (`1280` minimum) for stable realtime throughput.
+Useful for wrapping transcription inside XML-like prompt scaffolding before sending text to AI tools.
+
+## Permissions
+
+- Microphone permission is requested on first launch.
+- Accessibility permission is required for text injection.
+
+Menu shortcuts:
+- `Grant Accessibility`
+- `Open Microphone Settings`
+
+## Diagnostics
+
+App log:
+- `~/Library/Logs/Supervoxtral/app.log`
+
+Crash reports:
+- `~/Library/Logs/DiagnosticReports/Supervoxtral-*.ips`
+
+Model cache:
+- `~/Library/Caches/supervoxtral/ellamind_Voxtral-Mini-4B-Realtime-8bit-mlx`
+
+Useful commands:
+
+```bash
+pkill -f Supervoxtral || true
+rm -f ~/Library/Logs/Supervoxtral/app.log
+open dist/Supervoxtral.app
+sleep 3
+tail -n 200 -f ~/Library/Logs/Supervoxtral/app.log
+```
+
+## Tests
+
+Run focused unit tests:
+
+```bash
+swift test --disable-sandbox -c debug --filter "(ContentBiasProcessorTests|SettingsTests)"
+```
+
+Run integration streaming stress test (requires audio/model environment):
+
+```bash
+uv run python tests/integration_streaming_soundfile.py
+```
+
+## Maintainer Release Flow
+
+### Local CLI release command
+
+```bash
+./scripts/release_github.sh v0.1.0
+```
+
+What it does:
+- validates clean git state and `gh` auth
+- pushes branch + tag
+- builds versioned DMG
+- creates GitHub release and uploads DMG
+
+Use draft releases:
+
+```bash
+./scripts/release_github.sh v0.1.0 --draft
+```
+
+### GitHub Actions release workflow
+
+File:
+- `.github/workflows/release.yml`
+
+Trigger:
+- push tag `v*`
+
+It builds the DMG on macOS and publishes it as a downloadable GitHub Release asset.

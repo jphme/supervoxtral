@@ -10,3 +10,8 @@ wheels/
 .venv
 .build/
 .DS_Store
+
+# Local overrides and release artifacts
+config/settings.local.json
+config/settings.private.json
+release-notes.md

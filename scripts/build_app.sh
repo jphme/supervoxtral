@@ -4,6 +4,20 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+RECOMMENDED_MLX_VERSION="0.30.3"
+
+read_version() {
+  if [[ -n "${SUPERVOXTRAL_VERSION:-}" ]]; then
+    echo "${SUPERVOXTRAL_VERSION}"
+    return 0
+  fi
+  if [[ -f "$ROOT_DIR/VERSION" ]]; then
+    tr -d '[:space:]' < "$ROOT_DIR/VERSION"
+    return 0
+  fi
+  echo "0.1.0"
+}
+
 run_release_build() {
   swift build --disable-sandbox -c release
 }
@@ -73,6 +87,38 @@ PY
   return 1
 }
 
+validate_mlx_python_version() {
+  if [[ -n "${SUPERVOXTRAL_MLX_METALLIB:-}" ]]; then
+    return 0
+  fi
+
+  if ! command -v python3 >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local mlx_version
+  mlx_version="$(
+    python3 - <<'PY' 2>/dev/null || true
+try:
+    import mlx
+except Exception:
+    raise SystemExit(0)
+print(getattr(mlx, "__version__", ""))
+PY
+  )"
+
+  if [[ -n "$mlx_version" && "$mlx_version" != "$RECOMMENDED_MLX_VERSION" ]]; then
+    echo "[supervoxtral] ERROR: Python mlx version is $mlx_version, but this project expects $RECOMMENDED_MLX_VERSION."
+    echo "[supervoxtral] Install matching version: python3 -m pip install --user \"mlx==$RECOMMENDED_MLX_VERSION\""
+    echo "[supervoxtral] or set SUPERVOXTRAL_MLX_METALLIB=/path/to/mlx.metallib"
+    exit 1
+  fi
+}
+
+APP_VERSION="$(read_version)"
+BUILD_NUMBER="${SUPERVOXTRAL_BUILD_NUMBER:-1}"
+validate_mlx_python_version
+
 echo "[supervoxtral] Building release binary..."
 BUILD_LOG="$(mktemp -t supervoxtral-build.XXXXXX.log)"
 trap 'rm -f "$BUILD_LOG"' EXIT
@@ -106,7 +152,7 @@ mkdir -p "$MACOS" "$RESOURCES"
 cp "$BIN_PATH" "$MACOS/Supervoxtral"
 chmod +x "$MACOS/Supervoxtral"
 
-cat > "$CONTENTS/Info.plist" <<'PLIST'
+cat > "$CONTENTS/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -122,9 +168,9 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.1.0</string>
+  <string>${APP_VERSION}</string>
   <key>CFBundleVersion</key>
-  <string>1</string>
+  <string>${BUILD_NUMBER}</string>
   <key>LSMinimumSystemVersion</key>
   <string>14.0</string>
   <key>LSUIElement</key>
@@ -153,4 +199,5 @@ echo "[supervoxtral] Bundled Metal library: $MLX_METALLIB_PATH"
 codesign --force --deep --sign - "$APP_PATH" >/dev/null 2>&1 || true
 
 echo "[supervoxtral] App bundle built: $APP_PATH"
+echo "[supervoxtral] Version: ${APP_VERSION} (build ${BUILD_NUMBER})"
 echo "[supervoxtral] Launch with: open \"$APP_PATH\""

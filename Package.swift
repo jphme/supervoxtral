@@ -45,5 +45,19 @@ let package = Package(
                 .product(name: "MLX", package: "mlx-swift"),
             ]
         ),
+        .testTarget(
+            name: "VoxtralRuntimeTests",
+            dependencies: [
+                "VoxtralRuntime",
+            ],
+            path: "tests/VoxtralRuntimeTests"
+        ),
+        .testTarget(
+            name: "SupervoxtralTests",
+            dependencies: [
+                "supervoxtral",
+            ],
+            path: "tests/SupervoxtralTests"
+        ),
     ]
 )

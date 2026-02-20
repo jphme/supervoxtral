@@ -25,8 +25,16 @@ final class VoxtralRealtimeAdaRMSNorm: Module {
     @ModuleInfo(key: "ada_down") var adaDown: Linear
     @ModuleInfo(key: "ada_up") var adaUp: Linear
 
-    init(dim _: Int, bottleneckDim _: Int) {
-        self._adaDown.wrappedValue = VoxtralLayerPlaceholders.linear(withBias: false)
+    init(
+        dim _: Int,
+        bottleneckDim _: Int,
+        quantization: VoxtralRealtimeConfig.QuantizationConfig
+    ) {
+        self._adaDown.wrappedValue = VoxtralLayerPlaceholders.quantizedLinear(
+            withBias: false,
+            groupSize: quantization.groupSize,
+            bits: quantization.bits
+        )
         self._adaUp.wrappedValue = VoxtralLayerPlaceholders.linear(withBias: false)
     }
 
@@ -53,7 +61,7 @@ final class VoxtralRealtimeDecoderAttention: Module {
     @ModuleInfo(key: "wv") var wv: Linear
     @ModuleInfo(key: "wo") var wo: Linear
 
-    init(_ config: VoxtralRealtimeDecoderConfig) {
+    init(_ config: VoxtralRealtimeDecoderConfig, quantization: VoxtralRealtimeConfig.QuantizationConfig) {
         nHeads = config.nHeads
         nKvHeads = config.nKvHeads
         headDim = config.headDim
@@ -61,10 +69,26 @@ final class VoxtralRealtimeDecoderAttention: Module {
         ropeTheta = config.ropeTheta
         scale = pow(Float(config.headDim), -0.5)
 
-        self._wq.wrappedValue = VoxtralLayerPlaceholders.quantizedLinear(withBias: false)
-        self._wk.wrappedValue = VoxtralLayerPlaceholders.quantizedLinear(withBias: false)
-        self._wv.wrappedValue = VoxtralLayerPlaceholders.quantizedLinear(withBias: false)
-        self._wo.wrappedValue = VoxtralLayerPlaceholders.quantizedLinear(withBias: false)
+        self._wq.wrappedValue = VoxtralLayerPlaceholders.quantizedLinear(
+            withBias: false,
+            groupSize: quantization.groupSize,
+            bits: quantization.bits
+        )
+        self._wk.wrappedValue = VoxtralLayerPlaceholders.quantizedLinear(
+            withBias: false,
+            groupSize: quantization.groupSize,
+            bits: quantization.bits
+        )
+        self._wv.wrappedValue = VoxtralLayerPlaceholders.quantizedLinear(
+            withBias: false,
+            groupSize: quantization.groupSize,
+            bits: quantization.bits
+        )
+        self._wo.wrappedValue = VoxtralLayerPlaceholders.quantizedLinear(
+            withBias: false,
+            groupSize: quantization.groupSize,
+            bits: quantization.bits
+        )
 
     }
 
@@ -154,23 +178,36 @@ final class VoxtralRealtimeDecoderLayer: Module {
     @ModuleInfo(key: "feed_forward_w3") var feedForwardW3: Linear
     @ModuleInfo(key: "feed_forward_w2") var feedForwardW2: Linear
 
-    init(_ config: VoxtralRealtimeDecoderConfig) {
+    init(_ config: VoxtralRealtimeDecoderConfig, quantization: VoxtralRealtimeConfig.QuantizationConfig) {
         self._attentionNorm.wrappedValue = RMSNorm(dimensions: config.dim, eps: config.normEps)
-        self._attention.wrappedValue = VoxtralRealtimeDecoderAttention(config)
+        self._attention.wrappedValue = VoxtralRealtimeDecoderAttention(config, quantization: quantization)
         self._ffnNorm.wrappedValue = RMSNorm(dimensions: config.dim, eps: config.normEps)
 
         if config.adaRmsNormTCond {
             self._adaRmsNormTCond.wrappedValue = VoxtralRealtimeAdaRMSNorm(
                 dim: config.dim,
-                bottleneckDim: config.adaRmsNormTCondDim
+                bottleneckDim: config.adaRmsNormTCondDim,
+                quantization: quantization
             )
         } else {
             self._adaRmsNormTCond.wrappedValue = nil
         }
 
-        self._feedForwardW1.wrappedValue = VoxtralLayerPlaceholders.quantizedLinear(withBias: false)
-        self._feedForwardW3.wrappedValue = VoxtralLayerPlaceholders.quantizedLinear(withBias: false)
-        self._feedForwardW2.wrappedValue = VoxtralLayerPlaceholders.quantizedLinear(withBias: false)
+        self._feedForwardW1.wrappedValue = VoxtralLayerPlaceholders.quantizedLinear(
+            withBias: false,
+            groupSize: quantization.groupSize,
+            bits: quantization.bits
+        )
+        self._feedForwardW3.wrappedValue = VoxtralLayerPlaceholders.quantizedLinear(
+            withBias: false,
+            groupSize: quantization.groupSize,
+            bits: quantization.bits
+        )
+        self._feedForwardW2.wrappedValue = VoxtralLayerPlaceholders.quantizedLinear(
+            withBias: false,
+            groupSize: quantization.groupSize,
+            bits: quantization.bits
+        )
     }
 
     func callAsFunction(
@@ -208,11 +245,14 @@ final class VoxtralRealtimeDecoder: Module {
 
     var adaScales: [MLXArray?]?
 
-    init(_ config: VoxtralRealtimeDecoderConfig) {
+    init(_ config: VoxtralRealtimeDecoderConfig, quantization: VoxtralRealtimeConfig.QuantizationConfig) {
         self.config = config
-        self._tokEmbeddings.wrappedValue = VoxtralLayerPlaceholders.embedding()
+        self._tokEmbeddings.wrappedValue = VoxtralLayerPlaceholders.embedding(
+            groupSize: quantization.groupSize,
+            bits: quantization.bits
+        )
         self._layers.wrappedValue = (0..<config.nLayers).map { _ in
-            VoxtralRealtimeDecoderLayer(config)
+            VoxtralRealtimeDecoderLayer(config, quantization: quantization)
         }
         self._norm.wrappedValue = RMSNorm(dimensions: config.dim, eps: config.normEps)
     }
@@ -233,7 +273,7 @@ final class VoxtralRealtimeDecoder: Module {
     }
 
     func embedToken(tokenId: Int) -> MLXArray {
-        tokEmbeddings.weight[tokenId]
+        tokEmbeddings(MLXArray([tokenId]))[0]
     }
 
     func embedTokens(_ tokenIds: MLXArray) -> MLXArray {
@@ -265,6 +305,6 @@ final class VoxtralRealtimeDecoder: Module {
     }
 
     func logits(_ h: MLXArray) -> MLXArray {
-        MLX.matmul(h, tokEmbeddings.weight.transposed(1, 0))
+        tokEmbeddings.asLinear(h)
     }
 }

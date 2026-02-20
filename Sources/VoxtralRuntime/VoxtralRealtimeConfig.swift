@@ -198,10 +198,26 @@ public struct VoxtralRealtimeDecoderConfig: Codable, Sendable {
 }
 
 public struct VoxtralRealtimeConfig: Codable, Sendable {
+    public struct QuantizationConfig: Codable, Sendable {
+        public var groupSize: Int
+        public var bits: Int
+
+        enum CodingKeys: String, CodingKey {
+            case groupSize = "group_size"
+            case bits
+        }
+
+        public init(groupSize: Int = 64, bits: Int = 8) {
+            self.groupSize = groupSize
+            self.bits = bits
+        }
+    }
+
     public var modelType: String
     public var encoderArgs: VoxtralRealtimeEncoderConfig
     public var decoder: VoxtralRealtimeDecoderConfig
     public var audioEncodingArgs: VoxtralRealtimeAudioEncodingConfig
+    public var quantization: QuantizationConfig
     public var transcriptionDelayMs: Int
 
     public var vocabSize: Int
@@ -217,6 +233,7 @@ public struct VoxtralRealtimeConfig: Codable, Sendable {
         case encoderArgs = "encoder_args"
         case decoder
         case audioEncodingArgs = "audio_encoding_args"
+        case quantization
         case transcriptionDelayMs = "transcription_delay_ms"
         case vocabSize = "vocab_size"
         case hiddenSize = "hidden_size"
@@ -235,6 +252,7 @@ public struct VoxtralRealtimeConfig: Codable, Sendable {
         encoderArgs: VoxtralRealtimeEncoderConfig = VoxtralRealtimeEncoderConfig(),
         decoder: VoxtralRealtimeDecoderConfig = VoxtralRealtimeDecoderConfig(),
         audioEncodingArgs: VoxtralRealtimeAudioEncodingConfig = VoxtralRealtimeAudioEncodingConfig(),
+        quantization: QuantizationConfig = QuantizationConfig(),
         transcriptionDelayMs: Int = 480,
         vocabSize: Int = 131072,
         hiddenSize: Int = 3072,
@@ -247,6 +265,7 @@ public struct VoxtralRealtimeConfig: Codable, Sendable {
         self.encoderArgs = encoderArgs
         self.decoder = decoder
         self.audioEncodingArgs = audioEncodingArgs
+        self.quantization = quantization
         self.transcriptionDelayMs = transcriptionDelayMs
         self.vocabSize = vocabSize
         self.hiddenSize = hiddenSize
@@ -271,6 +290,8 @@ public struct VoxtralRealtimeConfig: Codable, Sendable {
         } else {
             audioEncodingArgs = VoxtralRealtimeAudioEncodingConfig()
         }
+
+        quantization = try c.decodeIfPresent(QuantizationConfig.self, forKey: .quantization) ?? QuantizationConfig()
 
         transcriptionDelayMs = try c.decodeIfPresent(Int.self, forKey: .transcriptionDelayMs) ?? 480
         bosTokenId = try c.decodeIfPresent(Int.self, forKey: .bosTokenId) ?? 1

@@ -14,7 +14,7 @@ enum VoxtralLayerPlaceholders {
     static func quantizedLinear(
         withBias: Bool,
         groupSize: Int = 64,
-        bits: Int = 4,
+        bits: Int = 8,
         mode: QuantizationMode = .affine
     ) -> Linear {
         let weight = MLXArray.zeros([1, 1], type: UInt32.self)
@@ -33,7 +33,13 @@ enum VoxtralLayerPlaceholders {
         )
     }
 
-    static func embedding() -> Embedding {
-        Embedding(weight: MLXArray.zeros([1, 1], type: Float.self))
+    static func embedding(groupSize: Int = 64, bits: Int = 8) -> Embedding {
+        let placeholderDim = max(groupSize, 64)
+        return QuantizedEmbedding(
+            weight: MLXArray.zeros([1, placeholderDim], type: Float.self),
+            groupSize: groupSize,
+            bits: bits,
+            mode: .affine
+        )
     }
 }

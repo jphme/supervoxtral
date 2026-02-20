@@ -31,6 +31,11 @@ swift run --disable-sandbox supervoxtral
 open dist/Supervoxtral.app
 ```
 
+```bash
+./scripts/build_dmg.sh
+open dist/Supervoxtral-$(cat VERSION).dmg
+```
+
 ### Restart + live logs
 
 ```bash
@@ -66,6 +71,11 @@ Current recommended realtime defaults:
 - `maxTokens`: `512`
 - `transcriptionDelayMs`: `480`
 - `mlxDevice`: `gpu`
+- `contentBias`: `[]`
+- `contentBiasStrength`: `5.0`
+- `contentBiasFirstTokenFactor`: `0.2`
+- `transcriptPrefix`: `""`
+- `transcriptSuffix`: `""`
 
 Notes:
 

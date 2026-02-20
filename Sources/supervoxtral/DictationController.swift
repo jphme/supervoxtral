@@ -78,6 +78,9 @@ final class DictationController: @unchecked Sendable {
                 || oldSettings.temperature != normalized.temperature
                 || oldSettings.language != normalized.language
                 || oldSettings.transcriptionDelayMs != normalized.transcriptionDelayMs
+                || oldSettings.contentBias != normalized.contentBias
+                || oldSettings.contentBiasStrength != normalized.contentBiasStrength
+                || oldSettings.contentBiasFirstTokenFactor != normalized.contentBiasFirstTokenFactor
 
             if requiresModelReload {
                 if self.isListening {
@@ -222,10 +225,17 @@ final class DictationController: @unchecked Sendable {
             minChunkDuration: 1.0
         )
 
+        let contentBiasConfiguration = ContentBiasConfiguration(
+            phrases: settings.contentBias,
+            strength: settings.contentBiasStrength,
+            firstTokenFactor: settings.contentBiasFirstTokenFactor
+        )
+
         let session = VoxtralRealtimeStreamingSession(
             model: model,
             generationParameters: params,
-            transcriptionDelayMs: settings.transcriptionDelayMs
+            transcriptionDelayMs: settings.transcriptionDelayMs,
+            contentBiasConfiguration: contentBiasConfiguration
         )
         if let mlxDevice {
             _ = Device.withDefaultDevice(mlxDevice) {
@@ -268,6 +278,7 @@ final class DictationController: @unchecked Sendable {
         decodeBuffer.removeAll(keepingCapacity: true)
         emptyDecodeSamples = 0
         isListening = true
+        injectFramingTextIfNeeded(settings.transcriptPrefix, stage: "prefix")
         log("Listening started")
         emitState(.listening)
         emitStatusDetail("Listening")
@@ -328,6 +339,7 @@ final class DictationController: @unchecked Sendable {
             }
             injectDeltaIfNeeded(flushed)
         }
+        injectFramingTextIfNeeded(settings.transcriptSuffix, stage: "suffix")
 
         capture.stop()
         capture.reset()
@@ -416,6 +428,15 @@ final class DictationController: @unchecked Sendable {
             }
         } catch {
             emitError("Text injection failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func injectFramingTextIfNeeded(_ text: String, stage: String) {
+        guard !text.isEmpty else { return }
+        do {
+            try injector.insert(text)
+        } catch {
+            emitError("Text \(stage) injection failed: \(error.localizedDescription)")
         }
     }
 

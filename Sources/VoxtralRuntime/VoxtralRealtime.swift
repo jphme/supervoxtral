@@ -44,8 +44,14 @@ public final class VoxtralRealtimeModel: Module, STTGenerationModel {
 
     public init(_ config: VoxtralRealtimeConfig) {
         self.config = config
-        self._encoder.wrappedValue = VoxtralRealtimeAudioEncoder(config.encoderArgs)
-        self._decoder.wrappedValue = VoxtralRealtimeDecoder(config.decoder)
+        self._encoder.wrappedValue = VoxtralRealtimeAudioEncoder(
+            config.encoderArgs,
+            quantization: config.quantization
+        )
+        self._decoder.wrappedValue = VoxtralRealtimeDecoder(
+            config.decoder,
+            quantization: config.quantization
+        )
     }
 
     public func generate(
@@ -198,6 +204,18 @@ public final class VoxtralRealtimeModel: Module, STTGenerationModel {
 
     func decodeToken(tokenId: Int) -> String {
         tokenizer?.decode(tokenIds: [tokenId]) ?? ""
+    }
+
+    func makeContentBiasProcessor(configuration: ContentBiasConfiguration?) -> ContentBiasProcessor? {
+        guard let configuration, !configuration.phrases.isEmpty, let tokenizer else {
+            return nil
+        }
+        let processor = ContentBiasProcessor(
+            configuration: configuration,
+            tokenizer: tokenizer,
+            eosTokenId: config.eosTokenId
+        )
+        return processor.hasBias ? processor : nil
     }
 }
 
@@ -404,6 +422,23 @@ public extension VoxtralRealtimeModel {
 
         progressHandler?("Preparing tensor map")
         let sanitized = sanitize(weights: weights)
+        let requiredKeys = [
+            "decoder.tok_embeddings.weight",
+            "decoder.norm.weight",
+            "encoder.conv_layers_0_conv.conv.weight",
+            "encoder.audio_language_projection_0.weight",
+            "decoder.layers.0.attention.wq.weight",
+        ]
+        let missingRequired = requiredKeys.filter { sanitized[$0] == nil }
+        if !missingRequired.isEmpty {
+            throw NSError(
+                domain: "VoxtralRealtimeModel",
+                code: 3,
+                userInfo: [
+                    NSLocalizedDescriptionKey: "Missing required mapped weights: \(missingRequired.joined(separator: ", "))"
+                ]
+            )
+        }
 
         progressHandler?("Applying model parameters")
         model.update(parameters: ModuleParameters.unflattened(sanitized))
@@ -444,6 +479,44 @@ public extension VoxtralRealtimeModel {
         var newWeights: [String: MLXArray] = [:]
         newWeights.reserveCapacity(weights.count)
 
+        func remapAttentionProjections(_ path: String) -> String {
+            var remapped = path
+            remapped = remapped.replacingOccurrences(of: "attention.q_proj.", with: "attention.wq.")
+            remapped = remapped.replacingOccurrences(of: "attention.k_proj.", with: "attention.wk.")
+            remapped = remapped.replacingOccurrences(of: "attention.v_proj.", with: "attention.wv.")
+            remapped = remapped.replacingOccurrences(of: "attention.o_proj.", with: "attention.wo.")
+            return remapped
+        }
+
+        func remapFeedForwardPath(_ path: String) -> String {
+            var remapped = path
+            remapped = remapped.replacingOccurrences(of: "mlp.gate_proj.", with: "feed_forward_w1.")
+            remapped = remapped.replacingOccurrences(of: "mlp.up_proj.", with: "feed_forward_w3.")
+            remapped = remapped.replacingOccurrences(of: "mlp.down_proj.", with: "feed_forward_w2.")
+            remapped = remapped.replacingOccurrences(of: "feed_forward.w1.", with: "feed_forward_w1.")
+            remapped = remapped.replacingOccurrences(of: "feed_forward.w2.", with: "feed_forward_w2.")
+            remapped = remapped.replacingOccurrences(of: "feed_forward.w3.", with: "feed_forward_w3.")
+            return remapped
+        }
+
+        func remapEncoderLayerPath(_ path: String) -> String {
+            var remapped = remapAttentionProjections(path)
+            remapped = remapFeedForwardPath(remapped)
+            remapped = remapped.replacingOccurrences(of: "attn_norm.", with: "attention_norm.")
+            return remapped
+        }
+
+        func remapDecoderLayerPath(_ path: String) -> String {
+            var remapped = remapAttentionProjections(path)
+            remapped = remapFeedForwardPath(remapped)
+            remapped = remapped.replacingOccurrences(of: "attn_norm.", with: "attention_norm.")
+            remapped = remapped.replacingOccurrences(of: "ada_norm.linear_in.", with: "ada_rms_norm_t_cond.ada_down.")
+            remapped = remapped.replacingOccurrences(of: "ada_norm.linear_out.", with: "ada_rms_norm_t_cond.ada_up.")
+            remapped = remapped.replacingOccurrences(of: "ada_rms_norm_t_cond.0.", with: "ada_rms_norm_t_cond.ada_down.")
+            remapped = remapped.replacingOccurrences(of: "ada_rms_norm_t_cond.2.", with: "ada_rms_norm_t_cond.ada_up.")
+            return remapped
+        }
+
         let encPrefix = "mm_streams_embeddings.embedding_module.whisper_encoder"
         let adapterPrefix = "mm_streams_embeddings.embedding_module"
         let tokEmbKey = "mm_streams_embeddings.embedding_module.tok_embeddings.weight"
@@ -452,7 +525,42 @@ public extension VoxtralRealtimeModel {
             var v = value
             var mapped: String?
 
-            if key == tokEmbKey {
+            if key == "language_model.norm.weight" {
+                mapped = "decoder.norm.weight"
+            } else if key.hasPrefix("language_model.embed_tokens.") {
+                let rest = String(key.dropFirst("language_model.embed_tokens.".count))
+                mapped = "decoder.tok_embeddings.\(rest)"
+            } else if key.hasPrefix("language_model.layers.") {
+                let rest = String(key.dropFirst("language_model.layers.".count))
+                let parts = rest.split(separator: ".", maxSplits: 1, omittingEmptySubsequences: false)
+                if parts.count == 2 {
+                    let layerIdx = String(parts[0])
+                    let paramPath = remapDecoderLayerPath(String(parts[1]))
+                    mapped = "decoder.layers.\(layerIdx).\(paramPath)"
+                }
+            } else if key == "encoder.norm.weight" {
+                mapped = "encoder.transformer_norm.weight"
+            } else if key.hasPrefix("encoder.conv1.") {
+                let rest = String(key.dropFirst("encoder.conv1.".count))
+                mapped = "encoder.conv_layers_0_conv.conv.\(rest)"
+            } else if key.hasPrefix("encoder.conv2.") {
+                let rest = String(key.dropFirst("encoder.conv2.".count))
+                mapped = "encoder.conv_layers_1_conv.conv.\(rest)"
+            } else if key.hasPrefix("encoder.layers.") {
+                let rest = String(key.dropFirst("encoder.layers.".count))
+                let parts = rest.split(separator: ".", maxSplits: 1, omittingEmptySubsequences: false)
+                if parts.count == 2 {
+                    let layerIdx = String(parts[0])
+                    let paramPath = remapEncoderLayerPath(String(parts[1]))
+                    mapped = "encoder.transformer_layers.\(layerIdx).\(paramPath)"
+                }
+            } else if key.hasPrefix("adapter.w_in.") {
+                let rest = String(key.dropFirst("adapter.w_in.".count))
+                mapped = "encoder.audio_language_projection_0.\(rest)"
+            } else if key.hasPrefix("adapter.w_out.") {
+                let rest = String(key.dropFirst("adapter.w_out.".count))
+                mapped = "encoder.audio_language_projection_2.\(rest)"
+            } else if key == tokEmbKey {
                 mapped = "decoder.tok_embeddings.weight"
             } else if key == "norm.weight" {
                 mapped = "decoder.norm.weight"
@@ -472,10 +580,7 @@ public extension VoxtralRealtimeModel {
                 let parts = rest.split(separator: ".", maxSplits: 1, omittingEmptySubsequences: false)
                 if parts.count == 2 {
                     let layerIdx = String(parts[0])
-                    var paramPath = String(parts[1])
-                    paramPath = paramPath.replacingOccurrences(of: "feed_forward.w1.", with: "feed_forward_w1.")
-                    paramPath = paramPath.replacingOccurrences(of: "feed_forward.w2.", with: "feed_forward_w2.")
-                    paramPath = paramPath.replacingOccurrences(of: "feed_forward.w3.", with: "feed_forward_w3.")
+                    let paramPath = remapEncoderLayerPath(String(parts[1]))
                     mapped = "encoder.transformer_layers.\(layerIdx).\(paramPath)"
                 }
             } else if key.hasPrefix("\(encPrefix).transformer.norm.") {
@@ -494,12 +599,7 @@ public extension VoxtralRealtimeModel {
                 let parts = rest.split(separator: ".", maxSplits: 1, omittingEmptySubsequences: false)
                 if parts.count == 2 {
                     let layerIdx = String(parts[0])
-                    var paramPath = String(parts[1])
-                    paramPath = paramPath.replacingOccurrences(of: "feed_forward.w1.", with: "feed_forward_w1.")
-                    paramPath = paramPath.replacingOccurrences(of: "feed_forward.w2.", with: "feed_forward_w2.")
-                    paramPath = paramPath.replacingOccurrences(of: "feed_forward.w3.", with: "feed_forward_w3.")
-                    paramPath = paramPath.replacingOccurrences(of: "ada_rms_norm_t_cond.0.", with: "ada_rms_norm_t_cond.ada_down.")
-                    paramPath = paramPath.replacingOccurrences(of: "ada_rms_norm_t_cond.2.", with: "ada_rms_norm_t_cond.ada_up.")
+                    let paramPath = remapDecoderLayerPath(String(parts[1]))
                     mapped = "decoder.layers.\(layerIdx).\(paramPath)"
                 }
             }

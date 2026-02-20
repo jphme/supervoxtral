@@ -7,10 +7,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var toggleItem: NSMenuItem!
     private var stateDetailItem: NSMenuItem!
     private var hotkeyDetailItem: NSMenuItem!
+    private var modelLocationItem: NSMenuItem!
+    private var modelProgressItem: NSMenuItem!
+    private var modelProgressLabel: NSTextField!
+    private var modelProgressIndicator: NSProgressIndicator!
 
     private var hotKey: HotKey?
     private var rightCommandMonitor: RightCommandMonitor?
     private var statusWatchdog: Timer?
+    private var settingsWindowController: SettingsWindowController?
 
     private var settings: AppSettings!
     private var settingsPath: URL!
@@ -18,12 +23,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var controller: DictationController!
     private var currentState: ControllerState = .loading
     private var menuBarHealthy = false
+    private var statusDetailText = "Loading model..."
+    private var downloadProgress: Double?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let loaded = SettingsLoader.load()
         settings = loaded.0
         settingsPath = loaded.1
         settingsLastModified = fileModificationDate(for: settingsPath)
+        settingsWindowController = SettingsWindowController()
+        settingsWindowController?.onSave = { [weak self] updated in
+            self?.persistSettingsFromPreferences(updated)
+        }
 
         setupMenuBar()
         startStatusWatchdog()
@@ -58,11 +69,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         controller.onStatusDetail = { [weak self] detail in
-            self?.stateDetailItem.title = "Status: \(detail)"
+            self?.handleStatusDetail(detail)
         }
 
         controller.onError = { [weak self] message in
-            self?.stateDetailItem.title = "Status: \(message)"
+            self?.handleStatusDetail(message)
             self?.log(message)
         }
     }
@@ -92,10 +103,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         button.appearsDisabled = false
 
         let menu = NSMenu()
+        menu.autoenablesItems = false
 
         toggleItem = NSMenuItem(title: "Start Dictation", action: #selector(toggleListening), keyEquivalent: "")
         toggleItem.target = self
         menu.addItem(toggleItem)
+
+        let preferencesItem = NSMenuItem(title: "Preferences…", action: #selector(openPreferences), keyEquivalent: ",")
+        preferencesItem.target = self
+        menu.addItem(preferencesItem)
 
         let reloadItem = NSMenuItem(title: "Reload Model", action: #selector(reloadModel), keyEquivalent: "")
         reloadItem.target = self
@@ -111,9 +127,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         stateDetailItem.isEnabled = false
         menu.addItem(stateDetailItem)
 
+        modelLocationItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        modelLocationItem.isEnabled = false
+        menu.addItem(modelLocationItem)
+
+        modelProgressItem = makeModelProgressItem()
+        menu.addItem(modelProgressItem)
+
+        let openModelCacheItem = NSMenuItem(title: "Open Model Cache", action: #selector(openModelCache), keyEquivalent: "")
+        openModelCacheItem.target = self
+        menu.addItem(openModelCacheItem)
+
+        let openLogItem = NSMenuItem(title: "Open App Log", action: #selector(openAppLog), keyEquivalent: "")
+        openLogItem.target = self
+        menu.addItem(openLogItem)
+
         let openSettingsItem = NSMenuItem(title: "Open Settings File", action: #selector(openSettingsFile), keyEquivalent: "")
         openSettingsItem.target = self
         menu.addItem(openSettingsItem)
+
+        menu.addItem(.separator())
 
         let accessibilityItem = NSMenuItem(title: "Grant Accessibility", action: #selector(grantAccessibility), keyEquivalent: "")
         accessibilityItem.target = self
@@ -125,6 +158,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(.separator())
 
+        let aboutItem = NSMenuItem(title: "About Supervoxtral", action: #selector(showAboutPanel), keyEquivalent: "")
+        aboutItem.target = self
+        menu.addItem(aboutItem)
+
         let quitItem = NSMenuItem(title: "Quit Supervoxtral", action: #selector(quitApp), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
@@ -132,6 +169,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.menu = menu
         menuBarHealthy = true
         NSApplication.shared.setActivationPolicy(.accessory)
+        refreshStatusUI()
     }
 
     private func startStatusWatchdog() {
@@ -156,7 +194,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.image = image(for: currentState)
             button.imagePosition = .imageOnly
             button.title = ""
-            button.toolTip = "Supervoxtral: \(stateText(for: currentState))"
+            button.toolTip = "Supervoxtral: \(statusDetailText)"
             statusItem?.isVisible = true
             menuBarHealthy = true
             NSApplication.shared.setActivationPolicy(.accessory)
@@ -197,18 +235,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let data = try? Data(contentsOf: settingsPath),
               let decoded = try? JSONDecoder().decode(AppSettings.self, from: data)
         else {
-            stateDetailItem.title = "Status: Settings file invalid JSON"
+            handleStatusDetail("Settings file contains invalid JSON")
             return
         }
 
         let normalized = SettingsLoader.normalizeForRuntime(decoded)
         if normalized != settings {
             settings = normalized
-            hotkeyDetailItem.title = "Hotkey: \(settings.hotkey)"
             registerHotkey()
             controller.updateSettings(settings)
-            stateDetailItem.title = "Status: Settings reloaded"
+            handleStatusDetail("Settings reloaded")
             log("Settings hot-reloaded")
+            refreshStatusUI()
         }
     }
 
@@ -226,33 +264,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .loading:
             toggleItem.title = "Start Dictation"
             toggleItem.isEnabled = false
-            stateDetailItem.title = "Status: Loading model..."
+            if statusDetailText == "Ready" || statusDetailText == "Listening" {
+                statusDetailText = "Loading model..."
+            }
         case .idle:
             toggleItem.title = "Start Dictation"
             toggleItem.isEnabled = true
-            stateDetailItem.title = "Status: Ready"
+            statusDetailText = "Ready"
+            downloadProgress = nil
         case .listening:
             toggleItem.title = "Stop Dictation"
             toggleItem.isEnabled = true
-            stateDetailItem.title = "Status: Listening"
+            statusDetailText = "Listening"
+            downloadProgress = nil
         case .error(let reason):
             toggleItem.title = "Start Dictation"
             toggleItem.isEnabled = true
-            stateDetailItem.title = "Status: \(reason)"
+            statusDetailText = reason
+            downloadProgress = nil
         }
-    }
-
-    private func stateText(for state: ControllerState) -> String {
-        switch state {
-        case .loading:
-            return "Loading"
-        case .idle:
-            return "Ready"
-        case .listening:
-            return "Listening"
-        case .error:
-            return "Error"
-        }
+        refreshStatusUI()
     }
 
     private func image(for state: ControllerState) -> NSImage? {
@@ -292,6 +323,133 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppLog.write("[supervoxtral] \(message)")
     }
 
+    private func handleStatusDetail(_ detail: String) {
+        statusDetailText = detail
+        downloadProgress = parseProgress(from: detail)
+        refreshStatusUI()
+    }
+
+    private func refreshStatusUI() {
+        hotkeyDetailItem?.title = "Hotkey: \(settings?.hotkey ?? "right_cmd")"
+        stateDetailItem?.title = "Status: \(statusDetailText)"
+
+        let modelDirectory = currentModelCacheDirectory()
+        let abbreviatedModelPath = (modelDirectory.path as NSString).abbreviatingWithTildeInPath
+        modelLocationItem?.title = "Model cache: \(abbreviatedModelPath)"
+        modelLocationItem?.toolTip = modelDirectory.path
+        updateModelProgressIndicator()
+
+        settingsWindowController?.updateRuntimeInfo(
+            settingsPath: settingsPath,
+            modelDirectory: modelDirectory,
+            statusText: statusDetailText,
+            isLoading: currentState == .loading,
+            downloadProgress: downloadProgress
+        )
+    }
+
+    private func updateModelProgressIndicator() {
+        guard let modelProgressItem else { return }
+        let isLoading = currentState == .loading
+        modelProgressItem.isHidden = !isLoading
+
+        guard isLoading else {
+            modelProgressIndicator?.stopAnimation(nil)
+            modelProgressIndicator?.doubleValue = 0
+            modelProgressLabel?.stringValue = "Model download"
+            return
+        }
+
+        if let downloadProgress {
+            modelProgressIndicator?.isIndeterminate = false
+            modelProgressIndicator?.doubleValue = max(0, min(100, downloadProgress * 100))
+            modelProgressLabel?.stringValue = "Model download \(Int(downloadProgress * 100))%"
+        } else {
+            modelProgressIndicator?.isIndeterminate = true
+            modelProgressIndicator?.startAnimation(nil)
+            modelProgressLabel?.stringValue = "Model download in progress"
+        }
+    }
+
+    private func makeModelProgressItem() -> NSMenuItem {
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: 32))
+        view.translatesAutoresizingMaskIntoConstraints = false
+
+        let label = NSTextField(labelWithString: "Model download")
+        label.font = .systemFont(ofSize: 11, weight: .medium)
+        label.textColor = .secondaryLabelColor
+        label.frame = NSRect(x: 4, y: 16, width: 252, height: 14)
+        view.addSubview(label)
+        modelProgressLabel = label
+
+        let indicator = NSProgressIndicator(frame: NSRect(x: 4, y: 2, width: 252, height: 12))
+        indicator.minValue = 0
+        indicator.maxValue = 100
+        indicator.controlSize = .small
+        indicator.style = .bar
+        indicator.isIndeterminate = true
+        indicator.startAnimation(nil)
+        view.addSubview(indicator)
+        modelProgressIndicator = indicator
+
+        let item = NSMenuItem()
+        item.view = view
+        item.isEnabled = false
+        item.isHidden = true
+        return item
+    }
+
+    private func parseProgress(from detail: String) -> Double? {
+        if let percent = firstIntMatch(in: detail, pattern: #"(\d{1,3})%"#) {
+            return Double(percent) / 100.0
+        }
+
+        if let numerator = firstIntMatch(in: detail, pattern: #"(\d+)\s*/\s*(\d+)"#, captureGroup: 1),
+           let denominator = firstIntMatch(in: detail, pattern: #"(\d+)\s*/\s*(\d+)"#, captureGroup: 2),
+           denominator > 0
+        {
+            return Double(numerator) / Double(denominator)
+        }
+
+        return nil
+    }
+
+    private func firstIntMatch(in text: String, pattern: String, captureGroup: Int = 1) -> Int? {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return nil
+        }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        guard let match = regex.firstMatch(in: text, range: range),
+              captureGroup < match.numberOfRanges,
+              let groupRange = Range(match.range(at: captureGroup), in: text)
+        else {
+            return nil
+        }
+        return Int(text[groupRange])
+    }
+
+    private func currentModelCacheDirectory() -> URL {
+        let modelSubdir = settings.modelId.replacingOccurrences(of: "/", with: "_")
+        let base = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Caches/supervoxtral", isDirectory: true)
+        return base.appendingPathComponent(modelSubdir, isDirectory: true)
+    }
+
+    private func persistSettingsFromPreferences(_ updated: AppSettings) {
+        let normalized = SettingsLoader.normalizeForRuntime(updated)
+        do {
+            try SettingsLoader.save(normalized, to: settingsPath)
+            settings = normalized
+            settingsLastModified = fileModificationDate(for: settingsPath)
+            registerHotkey()
+            controller.updateSettings(settings)
+            handleStatusDetail("Settings saved")
+            log("Settings saved from Preferences")
+        } catch {
+            handleStatusDetail("Failed to save settings: \(error.localizedDescription)")
+        }
+    }
+
     @objc
     private func toggleListening() {
         if case .loading = currentState {
@@ -311,8 +469,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc
+    private func openPreferences() {
+        settingsWindowController?.present(
+            settings: settings,
+            settingsPath: settingsPath,
+            modelDirectory: currentModelCacheDirectory(),
+            statusText: statusDetailText,
+            isLoading: currentState == .loading,
+            downloadProgress: downloadProgress
+        )
+    }
+
+    @objc
+    private func openModelCache() {
+        let modelDirectory = currentModelCacheDirectory()
+        let fallbackDirectory = modelDirectory.deletingLastPathComponent()
+        if FileManager.default.fileExists(atPath: modelDirectory.path) {
+            NSWorkspace.shared.activateFileViewerSelecting([modelDirectory])
+        } else {
+            NSWorkspace.shared.activateFileViewerSelecting([fallbackDirectory])
+        }
+    }
+
+    @objc
     private func openSettingsFile() {
         NSWorkspace.shared.activateFileViewerSelecting([settingsPath])
+    }
+
+    @objc
+    private func openAppLog() {
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: AppLog.path())])
     }
 
     @objc
@@ -324,6 +510,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc
     private func openMicrophoneSettings() {
         PermissionManager.openMicrophoneSettings()
+    }
+
+    @objc
+    private func showAboutPanel() {
+        NSApplication.shared.orderFrontStandardAboutPanel(nil)
+        NSApplication.shared.activate(ignoringOtherApps: true)
     }
 
     @objc

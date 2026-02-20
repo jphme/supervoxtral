@@ -137,17 +137,33 @@ final class VoxtralRealtimeEncoderAttention: Module {
     @ModuleInfo(key: "wv") var wv: Linear
     @ModuleInfo(key: "wo") var wo: Linear
 
-    init(_ config: VoxtralRealtimeEncoderConfig) {
+    init(_ config: VoxtralRealtimeEncoderConfig, quantization: VoxtralRealtimeConfig.QuantizationConfig) {
         nHeads = config.nHeads
         headDim = config.headDim
         slidingWindow = config.slidingWindow
         ropeTheta = config.ropeTheta
         scale = pow(Float(config.headDim), -0.5)
 
-        self._wq.wrappedValue = VoxtralLayerPlaceholders.quantizedLinear(withBias: true)
-        self._wk.wrappedValue = VoxtralLayerPlaceholders.quantizedLinear(withBias: false)
-        self._wv.wrappedValue = VoxtralLayerPlaceholders.quantizedLinear(withBias: true)
-        self._wo.wrappedValue = VoxtralLayerPlaceholders.quantizedLinear(withBias: true)
+        self._wq.wrappedValue = VoxtralLayerPlaceholders.quantizedLinear(
+            withBias: true,
+            groupSize: quantization.groupSize,
+            bits: quantization.bits
+        )
+        self._wk.wrappedValue = VoxtralLayerPlaceholders.quantizedLinear(
+            withBias: false,
+            groupSize: quantization.groupSize,
+            bits: quantization.bits
+        )
+        self._wv.wrappedValue = VoxtralLayerPlaceholders.quantizedLinear(
+            withBias: true,
+            groupSize: quantization.groupSize,
+            bits: quantization.bits
+        )
+        self._wo.wrappedValue = VoxtralLayerPlaceholders.quantizedLinear(
+            withBias: true,
+            groupSize: quantization.groupSize,
+            bits: quantization.bits
+        )
     }
 
     func callAsFunction(
@@ -232,14 +248,26 @@ final class VoxtralRealtimeEncoderLayer: Module {
     @ModuleInfo(key: "feed_forward_w3") var feedForwardW3: Linear
     @ModuleInfo(key: "feed_forward_w2") var feedForwardW2: Linear
 
-    init(_ config: VoxtralRealtimeEncoderConfig) {
+    init(_ config: VoxtralRealtimeEncoderConfig, quantization: VoxtralRealtimeConfig.QuantizationConfig) {
         self._attentionNorm.wrappedValue = RMSNorm(dimensions: config.dim, eps: config.normEps)
-        self._attention.wrappedValue = VoxtralRealtimeEncoderAttention(config)
+        self._attention.wrappedValue = VoxtralRealtimeEncoderAttention(config, quantization: quantization)
         self._ffnNorm.wrappedValue = RMSNorm(dimensions: config.dim, eps: config.normEps)
 
-        self._feedForwardW1.wrappedValue = VoxtralLayerPlaceholders.quantizedLinear(withBias: false)
-        self._feedForwardW3.wrappedValue = VoxtralLayerPlaceholders.quantizedLinear(withBias: false)
-        self._feedForwardW2.wrappedValue = VoxtralLayerPlaceholders.quantizedLinear(withBias: true)
+        self._feedForwardW1.wrappedValue = VoxtralLayerPlaceholders.quantizedLinear(
+            withBias: false,
+            groupSize: quantization.groupSize,
+            bits: quantization.bits
+        )
+        self._feedForwardW3.wrappedValue = VoxtralLayerPlaceholders.quantizedLinear(
+            withBias: false,
+            groupSize: quantization.groupSize,
+            bits: quantization.bits
+        )
+        self._feedForwardW2.wrappedValue = VoxtralLayerPlaceholders.quantizedLinear(
+            withBias: true,
+            groupSize: quantization.groupSize,
+            bits: quantization.bits
+        )
     }
 
     func callAsFunction(
@@ -275,7 +303,7 @@ final class VoxtralRealtimeAudioEncoder: Module {
     @ModuleInfo(key: "audio_language_projection_0") var audioLanguageProjection0: Linear
     @ModuleInfo(key: "audio_language_projection_2") var audioLanguageProjection2: Linear
 
-    init(_ config: VoxtralRealtimeEncoderConfig) {
+    init(_ config: VoxtralRealtimeEncoderConfig, quantization: VoxtralRealtimeConfig.QuantizationConfig) {
         self.config = config
 
         self._convLayers0Conv.wrappedValue = VoxtralRealtimeCausalConv1d(
@@ -292,12 +320,20 @@ final class VoxtralRealtimeAudioEncoder: Module {
         )
 
         self._transformerLayers.wrappedValue = (0..<config.nLayers).map { _ in
-            VoxtralRealtimeEncoderLayer(config)
+            VoxtralRealtimeEncoderLayer(config, quantization: quantization)
         }
         self._transformerNorm.wrappedValue = RMSNorm(dimensions: config.dim, eps: config.normEps)
 
-        self._audioLanguageProjection0.wrappedValue = VoxtralLayerPlaceholders.linear(withBias: false)
-        self._audioLanguageProjection2.wrappedValue = VoxtralLayerPlaceholders.linear(withBias: false)
+        self._audioLanguageProjection0.wrappedValue = VoxtralLayerPlaceholders.quantizedLinear(
+            withBias: false,
+            groupSize: quantization.groupSize,
+            bits: quantization.bits
+        )
+        self._audioLanguageProjection2.wrappedValue = VoxtralLayerPlaceholders.quantizedLinear(
+            withBias: false,
+            groupSize: quantization.groupSize,
+            bits: quantization.bits
+        )
     }
 
     func convStem(_ mel: MLXArray) -> MLXArray {

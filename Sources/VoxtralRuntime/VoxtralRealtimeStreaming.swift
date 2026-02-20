@@ -13,6 +13,7 @@ public final class VoxtralRealtimeStreamingSession {
     private let model: VoxtralRealtimeModel
     private let temperature: Float
     private let maxTokens: Int
+    private var contentBiasProcessor: ContentBiasProcessor?
 
     private let nLeftPadTokens: Int
     private let nRightPadTokens: Int
@@ -46,11 +47,13 @@ public final class VoxtralRealtimeStreamingSession {
     public init(
         model: VoxtralRealtimeModel,
         generationParameters: STTGenerateParameters,
-        transcriptionDelayMs: Int? = nil
+        transcriptionDelayMs: Int? = nil,
+        contentBiasConfiguration: ContentBiasConfiguration? = nil
     ) {
         self.model = model
         self.temperature = generationParameters.temperature
         self.maxTokens = generationParameters.maxTokens
+        self.contentBiasProcessor = model.makeContentBiasProcessor(configuration: contentBiasConfiguration)
 
         let delayTokens = Self.numDelayTokens(
             delayMs: transcriptionDelayMs ?? model.config.transcriptionDelayMs,
@@ -112,6 +115,7 @@ public final class VoxtralRealtimeStreamingSession {
         decoderEvalCounter = 0
         generatedTokenCount = 0
         firstCycle = true
+        contentBiasProcessor?.reset()
     }
 
     public func consume(audioSamples: [Float]) -> String {
@@ -447,6 +451,7 @@ private extension VoxtralRealtimeStreamingSession {
             if tokenId == eosTokenId || generatedTokenCount >= maxTokens {
                 decoderCache = nil
                 self.pendingToken = nil
+                contentBiasProcessor?.reset()
                 return (i, delta, true)
             }
 
@@ -454,6 +459,7 @@ private extension VoxtralRealtimeStreamingSession {
             if !text.isEmpty {
                 delta += text
             }
+            contentBiasProcessor?.update(tokenId: tokenId)
 
             let tokenEmbed = model.decoder.embedToken(tokenId: tokenId)
             let inputEmbed = (embeds[i] + tokenEmbed).expandedDimensions(axis: 0)
@@ -463,7 +469,13 @@ private extension VoxtralRealtimeStreamingSession {
             decoderCache = next.1
 
             let logits = model.decoder.logits(next.0[0])
-            let nextToken = sampleArray(logits: logits)
+            let biasedLogits: MLXArray
+            if let contentBiasProcessor, contentBiasProcessor.hasBias {
+                biasedLogits = contentBiasProcessor.apply(logits: logits)
+            } else {
+                biasedLogits = logits
+            }
+            let nextToken = sampleArray(logits: biasedLogits)
             asyncEval(nextToken)
             self.pendingToken = nextToken
 
@@ -514,6 +526,7 @@ private extension VoxtralRealtimeStreamingSession {
         decoderEvalCounter = 0
         generatedTokenCount = 0
         firstCycle = true
+        contentBiasProcessor?.reset()
     }
 
     func evaluateDecoderCache() {
