@@ -7,6 +7,7 @@ on:
 
 jobs:
   build-and-release:
+    if: false  # temporarily disabled — using manual releases
     runs-on: macos-14
     permissions:
       contents: write

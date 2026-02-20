@@ -26,6 +26,8 @@
 - **Custom vocabulary** -- boost recognition of domain-specific terms, product names, or technical jargon via content bias
 - **Lightweight menubar app** -- lives in your status bar, toggle with a hotkey (default: right Command key)
 
+ <video src="https://github.com/user-attachments/assets/aa2ba02b-dfae-418a-b2b7-5d63ec814b0c" width="600" controls autoplay loop muted></video>
+
 ## Requirements
 
 |   | Minimum |
