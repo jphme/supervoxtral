@@ -48,6 +48,21 @@ public enum ModelUtils {
                     return modelDir
                 }
             }
+
+            // Cache validation failed — remove required files that are missing or corrupt
+            // so the download loop will re-fetch them instead of skipping existing files.
+            let requiredFiles = ["config.json", "tekken.json"]
+            for name in requiredFiles {
+                let path = modelDir.appendingPathComponent(name)
+                guard FileManager.default.fileExists(atPath: path.path),
+                      let data = try? Data(contentsOf: path),
+                      !data.isEmpty,
+                      (try? JSONSerialization.jsonObject(with: data)) != nil
+                else {
+                    try? FileManager.default.removeItem(at: path)
+                    continue
+                }
+            }
         }
 
         try FileManager.default.createDirectory(at: modelDir, withIntermediateDirectories: true)

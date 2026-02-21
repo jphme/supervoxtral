@@ -1,5 +1,6 @@
 import Foundation
 import MLX
+import os
 import VoxtralRuntime
 
 enum ControllerState: Equatable {
@@ -545,30 +546,54 @@ final class DictationController: @unchecked Sendable {
         device: Device?,
         progressHandler: @escaping @Sendable (String) -> Void
     ) async throws -> SendableModelBox {
-        try await withThrowingTaskGroup(of: SendableModelBox.self) { group in
-            group.addTask {
-                let loaded: VoxtralRealtimeModel
-                if let device {
-                    loaded = try Device.withDefaultDevice(device) {
-                        try VoxtralRealtimeModel.fromDirectory(modelDir, progressHandler: progressHandler)
+        // Use detached tasks + continuation so the timeout can fire even when
+        // the synchronous fromDirectory call has no cancellation points.
+        // Structured concurrency (withThrowingTaskGroup) would wait for the
+        // synchronous loading task to finish before propagating the timeout.
+        let resumed = OSAllocatedUnfairLock(initialState: false)
+
+        return try await withCheckedThrowingContinuation { continuation in
+            Task.detached {
+                do {
+                    let loaded: VoxtralRealtimeModel
+                    if let device {
+                        loaded = try Device.withDefaultDevice(device) {
+                            try VoxtralRealtimeModel.fromDirectory(modelDir, progressHandler: progressHandler)
+                        }
+                    } else {
+                        loaded = try VoxtralRealtimeModel.fromDirectory(modelDir, progressHandler: progressHandler)
                     }
-                } else {
-                    loaded = try VoxtralRealtimeModel.fromDirectory(modelDir, progressHandler: progressHandler)
+                    let shouldResume = resumed.withLock { alreadyResumed in
+                        if alreadyResumed { return false }
+                        alreadyResumed = true
+                        return true
+                    }
+                    if shouldResume {
+                        continuation.resume(returning: SendableModelBox(model: loaded))
+                    }
+                } catch {
+                    let shouldResume = resumed.withLock { alreadyResumed in
+                        if alreadyResumed { return false }
+                        alreadyResumed = true
+                        return true
+                    }
+                    if shouldResume {
+                        continuation.resume(throwing: error)
+                    }
                 }
-                return SendableModelBox(model: loaded)
             }
 
-            group.addTask {
-                let nanos = UInt64(timeoutSeconds * 1_000_000_000.0)
-                try await Task.sleep(nanoseconds: nanos)
-                throw ModelLoadError.timeout(seconds: timeoutSeconds)
+            Task.detached {
+                try? await Task.sleep(nanoseconds: UInt64(timeoutSeconds * 1_000_000_000))
+                let shouldResume = resumed.withLock { alreadyResumed in
+                    if alreadyResumed { return false }
+                    alreadyResumed = true
+                    return true
+                }
+                if shouldResume {
+                    continuation.resume(throwing: ModelLoadError.timeout(seconds: timeoutSeconds))
+                }
             }
-
-            guard let first = try await group.next() else {
-                throw ModelLoadError.timeout(seconds: timeoutSeconds)
-            }
-            group.cancelAll()
-            return first
         }
     }
 
