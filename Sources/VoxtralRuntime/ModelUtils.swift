@@ -37,11 +37,12 @@ public enum ModelUtils {
 
         if FileManager.default.fileExists(atPath: modelDir.path) {
             let files = try? FileManager.default.contentsOfDirectory(at: modelDir, includingPropertiesForKeys: nil)
-            let hasRequiredFiles = files?.contains { $0.pathExtension == requiredExtension } ?? false
-            if hasRequiredFiles {
+            let hasWeights = files?.contains { $0.pathExtension == requiredExtension } ?? false
+            let hasConfig = FileManager.default.fileExists(atPath: modelDir.appendingPathComponent("config.json").path)
+            let hasTokenizer = FileManager.default.fileExists(atPath: modelDir.appendingPathComponent("tekken.json").path)
+            if hasWeights && hasConfig && hasTokenizer {
                 let configPath = modelDir.appendingPathComponent("config.json")
-                if FileManager.default.fileExists(atPath: configPath.path),
-                   let configData = try? Data(contentsOf: configPath),
+                if let configData = try? Data(contentsOf: configPath),
                    (try? JSONSerialization.jsonObject(with: configData)) != nil {
                     progressHandler?("Using cached model files")
                     return modelDir
