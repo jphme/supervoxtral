@@ -172,9 +172,13 @@ final class DictationController: @unchecked Sendable {
 
             Task {
                 do {
-                    let boxed = try await self.loadModelWithTimeout(
-                        modelId: modelId,
+                    let modelDir = try await VoxtralRealtimeModel.downloadPretrained(
+                        modelId,
                         hfToken: hfToken,
+                        progressHandler: progressHandler
+                    )
+                    let boxed = try await self.loadModelWithTimeout(
+                        modelDir: modelDir,
                         timeoutSeconds: timeoutSeconds,
                         device: mlxDevice,
                         progressHandler: progressHandler
@@ -536,8 +540,7 @@ final class DictationController: @unchecked Sendable {
     }
 
     private func loadModelWithTimeout(
-        modelId: String,
-        hfToken: String?,
+        modelDir: URL,
         timeoutSeconds: Double,
         device: Device?,
         progressHandler: @escaping @Sendable (String) -> Void
@@ -546,19 +549,11 @@ final class DictationController: @unchecked Sendable {
             group.addTask {
                 let loaded: VoxtralRealtimeModel
                 if let device {
-                    loaded = try await Device.withDefaultDevice(device) {
-                        try await VoxtralRealtimeModel.fromPretrained(
-                            modelId,
-                            hfToken: hfToken,
-                            progressHandler: progressHandler
-                        )
+                    loaded = try Device.withDefaultDevice(device) {
+                        try VoxtralRealtimeModel.fromDirectory(modelDir, progressHandler: progressHandler)
                     }
                 } else {
-                    loaded = try await VoxtralRealtimeModel.fromPretrained(
-                        modelId,
-                        hfToken: hfToken,
-                        progressHandler: progressHandler
-                    )
+                    loaded = try VoxtralRealtimeModel.fromDirectory(modelDir, progressHandler: progressHandler)
                 }
                 return SendableModelBox(model: loaded)
             }
