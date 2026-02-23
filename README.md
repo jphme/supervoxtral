@@ -42,6 +42,8 @@
 
 Grab the latest `.dmg` from the [Releases page](https://github.com/jphme/supervoxtral/releases/latest), open it, and drag **Supervoxtral** into your Applications folder.
 
+> **Note:** Supervoxtral is not yet notarized with Apple. macOS will block the app on first launch. See [Opening an unsigned app](#opening-an-unsigned-app) below for the one-time fix.
+
 ### Build from source
 
 ```bash
@@ -52,6 +54,27 @@ open dist/Supervoxtral.app
 ```
 
 > Requires Xcode command-line tools and Python `mlx==0.30.3` for the Metal shader library. See [Building](#building-from-source) below for details.
+
+### Opening an unsigned app
+
+Because Supervoxtral is not signed with an Apple Developer certificate, macOS Gatekeeper will block it on first launch. You only need to do this once.
+
+**Option A -- Terminal (works on all macOS versions, recommended)**
+
+```bash
+xattr -cr /Applications/Supervoxtral.app
+```
+
+This removes the quarantine flag that macOS adds to downloaded apps. After this, Supervoxtral launches normally.
+
+**Option B -- System Settings (macOS Sonoma & Sequoia)**
+
+1. Try to open Supervoxtral -- macOS will show a warning and block it.
+2. Open **System Settings → Privacy & Security**.
+3. Scroll down to the **Security** section.
+4. Click **"Open Anyway"** next to the Supervoxtral message.
+
+> On macOS Ventura and earlier, you can also right-click the app → **Open** → **Open** to bypass the warning. This option was removed in macOS Sequoia.
 
 ## Quick Start
 
@@ -116,6 +139,7 @@ Both can be granted from the menubar menu or System Settings > Privacy & Securit
 
 | Problem | Solution |
 | --- | --- |
+| "Cannot be opened because the developer cannot be verified" | Run `xattr -cr /Applications/Supervoxtral.app` in Terminal. See [Opening an unsigned app](#opening-an-unsigned-app). |
 | Text doesn't appear | Grant Accessibility permission in System Settings > Privacy & Security > Accessibility |
 | No audio input | Grant Microphone permission; check that the correct input device is selected |
 | Model download stalls | Set `HF_TOKEN` environment variable if using a gated model |
