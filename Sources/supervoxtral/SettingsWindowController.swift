@@ -26,12 +26,13 @@ final class SettingsWindowController: NSWindowController {
     private let transcriptionDelayField = NSTextField()
     private let modelTimeoutField = NSTextField()
     private let contextWindowField = NSTextField()
-    private let contentBiasTokenField = NSTokenField()
+    private let contentBiasTextView = NSTextView()
     private let contentBiasStrengthField = NSTextField()
     private let contentBiasFirstTokenFactorField = NSTextField()
     private let transcriptPrefixTextView = NSTextView()
     private let transcriptSuffixTextView = NSTextView()
 
+    private lazy var contentBiasScrollView = makeMultilineContainer(for: contentBiasTextView)
     private lazy var prefixScrollView = makeMultilineContainer(for: transcriptPrefixTextView)
     private lazy var suffixScrollView = makeMultilineContainer(for: transcriptSuffixTextView)
 
@@ -133,7 +134,15 @@ private extension SettingsWindowController {
 
         mlxDeviceField.addItems(withTitles: ["gpu", "cpu"])
         mlxDeviceField.setContentHuggingPriority(.defaultHigh, for: .horizontal)
-        contentBiasTokenField.tokenizingCharacterSet = CharacterSet(charactersIn: ",\n")
+
+        contentBiasTextView.isRichText = false
+        contentBiasTextView.usesFontPanel = false
+        contentBiasTextView.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        contentBiasTextView.textColor = .labelColor
+        contentBiasTextView.backgroundColor = .textBackgroundColor
+        contentBiasTextView.insertionPointColor = .labelColor
+        contentBiasTextView.isEditable = true
+        contentBiasTextView.isSelectable = true
 
         transcriptPrefixTextView.isRichText = false
         transcriptPrefixTextView.usesFontPanel = false
@@ -172,18 +181,20 @@ private extension SettingsWindowController {
         tabView.translatesAutoresizingMaskIntoConstraints = false
         tabView.tabViewType = .topTabsBezelBorder
 
-        tabView.addTabViewItem(makeTabItem(
+        tabView.addTabViewItem(makeTwoColumnTabItem(
             title: "General",
-            groups: [
+            left: [
                 makeFieldGroup(title: "Model ID", control: modelIdField),
                 makeFieldGroup(title: "HF token", control: hfTokenField, helpText: "Leave blank for public models."),
                 makeFieldGroup(title: "MLX device", control: mlxDeviceField),
-                makeFieldGroup(title: "Model load timeout (seconds)", control: modelTimeoutField),
+                makeFieldGroup(title: "Model load timeout (s)", control: modelTimeoutField),
                 makeFieldGroup(title: "Language", control: languageField),
                 makeFieldGroup(title: "Temperature", control: temperatureField),
+            ],
+            right: [
                 makeFieldGroup(title: "Max tokens", control: maxTokensField),
                 makeFieldGroup(title: "Transcription delay (ms)", control: transcriptionDelayField),
-                makeFieldGroup(title: "Context window (seconds)", control: contextWindowField),
+                makeFieldGroup(title: "Context window (s)", control: contextWindowField),
                 makeFieldGroup(title: "Hotkey", control: hotkeyField),
                 makeFieldGroup(title: "Decode interval (ms)", control: decodeIntervalField),
                 makeFieldGroup(title: "Min samples for decode", control: minSamplesField),
@@ -195,8 +206,8 @@ private extension SettingsWindowController {
             groups: [
                 makeFieldGroup(
                     title: "Bias terms",
-                    control: contentBiasTokenField,
-                    helpText: "Up to 100 terms. Use Enter or comma to add each term."
+                    control: contentBiasScrollView,
+                    helpText: "Up to 100 terms, one per line or comma-separated."
                 ),
                 makeFieldGroup(title: "Bias strength", control: contentBiasStrengthField),
                 makeFieldGroup(title: "First-token factor", control: contentBiasFirstTokenFactorField),
@@ -278,7 +289,7 @@ private extension SettingsWindowController {
         transcriptionDelayField.stringValue = "\(settings.transcriptionDelayMs)"
         modelTimeoutField.stringValue = "\(settings.modelLoadTimeoutSeconds ?? 240)"
         contextWindowField.stringValue = "\(settings.contextWindowSeconds)"
-        contentBiasTokenField.objectValue = settings.contentBias
+        contentBiasTextView.string = settings.contentBias.joined(separator: "\n")
         contentBiasStrengthField.stringValue = "\(settings.contentBiasStrength)"
         contentBiasFirstTokenFactorField.stringValue = "\(settings.contentBiasFirstTokenFactor)"
         transcriptPrefixTextView.string = settings.transcriptPrefix
@@ -314,6 +325,37 @@ private extension SettingsWindowController {
         stack.spacing = spacing
         stack.translatesAutoresizingMaskIntoConstraints = false
         return stack
+    }
+
+    func makeTwoColumnTabItem(title: String, left: [NSView], right: [NSView]) -> NSTabViewItem {
+        let container = NSView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+
+        let leftStack = makeVerticalStack(spacing: 10)
+        for group in left { leftStack.addArrangedSubview(group) }
+
+        let rightStack = makeVerticalStack(spacing: 10)
+        for group in right { rightStack.addArrangedSubview(group) }
+
+        let columns = NSStackView(views: [leftStack, rightStack])
+        columns.orientation = .horizontal
+        columns.alignment = .top
+        columns.distribution = .fillEqually
+        columns.spacing = 24
+        columns.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(columns)
+
+        NSLayoutConstraint.activate([
+            columns.topAnchor.constraint(equalTo: container.topAnchor, constant: 14),
+            columns.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 14),
+            columns.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -14),
+            columns.bottomAnchor.constraint(lessThanOrEqualTo: container.bottomAnchor, constant: -14),
+        ])
+
+        let item = NSTabViewItem(identifier: title)
+        item.label = title
+        item.view = container
+        return item
     }
 
     func makeTabItem(title: String, groups: [NSView]) -> NSTabViewItem {
@@ -429,13 +471,10 @@ private extension SettingsWindowController {
         updated.modelLoadTimeoutSeconds = Double(modelTimeoutField.stringValue) ?? updated.modelLoadTimeoutSeconds
         updated.contextWindowSeconds = Double(contextWindowField.stringValue) ?? updated.contextWindowSeconds
 
-        if let terms = contentBiasTokenField.objectValue as? [String] {
-            updated.contentBias = terms
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-        } else {
-            updated.contentBias = []
-        }
+        updated.contentBias = contentBiasTextView.string
+            .components(separatedBy: CharacterSet(charactersIn: ",\n"))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
 
         updated.contentBiasStrength = Float(contentBiasStrengthField.stringValue) ?? updated.contentBiasStrength
         updated.contentBiasFirstTokenFactor = Float(contentBiasFirstTokenFactorField.stringValue) ?? updated.contentBiasFirstTokenFactor
