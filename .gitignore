@@ -15,3 +15,4 @@ wheels/
 config/settings.local.json
 config/settings.private.json
 release-notes.md
+tmp/
