@@ -332,6 +332,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func refreshStatusUI() {
+        switch currentState {
+        case .loading:
+            toggleItem?.title = "Start Dictation"
+            toggleItem?.isEnabled = false
+        case .idle, .error:
+            toggleItem?.title = "Start Dictation"
+            toggleItem?.isEnabled = true
+        case .listening:
+            toggleItem?.title = "Stop Dictation"
+            toggleItem?.isEnabled = true
+        }
+
         hotkeyDetailItem?.title = "Hotkey: \(settings?.hotkey ?? "right_cmd")"
         stateDetailItem?.title = "Status: \(statusDetailText)"
 

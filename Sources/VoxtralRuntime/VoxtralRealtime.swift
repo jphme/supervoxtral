@@ -448,11 +448,11 @@ public extension VoxtralRealtimeModel {
         return model
     }
 
-    static func fromPretrained(
+    static func downloadPretrained(
         _ modelPath: String,
         hfToken: String? = nil,
         progressHandler: (@Sendable (String) -> Void)? = nil
-    ) async throws -> VoxtralRealtimeModel {
+    ) async throws -> URL {
         let resolvedToken: String? = hfToken
             ?? ProcessInfo.processInfo.environment["HF_TOKEN"]
             ?? Bundle.main.object(forInfoDictionaryKey: "HF_TOKEN") as? String
@@ -465,13 +465,24 @@ public extension VoxtralRealtimeModel {
             )
         }
 
-        let modelDir = try await ModelUtils.resolveOrDownloadModel(
+        return try await ModelUtils.resolveOrDownloadModel(
             repoID: repoID,
             requiredExtension: "safetensors",
             hfToken: resolvedToken,
             progressHandler: progressHandler
         )
+    }
 
+    static func fromPretrained(
+        _ modelPath: String,
+        hfToken: String? = nil,
+        progressHandler: (@Sendable (String) -> Void)? = nil
+    ) async throws -> VoxtralRealtimeModel {
+        let modelDir = try await downloadPretrained(
+            modelPath,
+            hfToken: hfToken,
+            progressHandler: progressHandler
+        )
         return try fromDirectory(modelDir, progressHandler: progressHandler)
     }
 
